@@ -59,6 +59,7 @@ def score(true, predicted):
     For each true signal take the min RMSE of each predicted.
     Signals are standardized first."""
     rs = []
+    assert not np.any(np.isnan(predicted)), 'nans detected'
     for t in true.T:
         rs.append(max(np.abs(kendalltau(t, p)[0]) for p in predicted.T))
     return np.array(rs)
@@ -76,7 +77,7 @@ print 'group sizes', map(lambda q: q.shape[1], data_groups)
 print 'Data size:', data.shape
 
 for loop_i in range(1):
-    out = lc.Corex(n_hidden=n_groups, seed=seed+loop_i, verbose=verbose, max_iter=1000, tol=1e-6).fit(data)
+    out = lc.Corex(n_hidden=n_groups, seed=seed+loop_i, verbose=verbose, max_iter=1000, tol=1e-5).fit(data)
     print 'Done, scoring:'
     scores = score(signal, out.transform(data))
     print 'TC:', out.tc

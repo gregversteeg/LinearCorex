@@ -6,7 +6,6 @@ Greg Ver Steeg (gregv@isi.edu), 2015.
 
 import numpy as np
 from scipy.stats import norm, rankdata  # Used for Gaussianizing data
-from scipy.special import expit
 
 
 class Corex(object):
@@ -117,7 +116,7 @@ class Corex(object):
         else:
             self.mean_x = x.mean(axis=0)
             x -= self.mean_x
-        var_x = np.einsum('li,li->i', x, x) / self.n_samples  # Variance of x
+        var_x = np.einsum('li,li->i', x, x) / (self.n_samples - 1)  # Variance of x
         self.ws = np.random.randn(self.m, self.nv)  # Random initialization
         self.ws = _sym_decorrelation(self.ws) * self.noise ** 2 / np.sqrt(var_x)
         self.lam = self.lam * np.ones(self.nv)  # Lagrange multipliers for additive solutions
@@ -125,7 +124,7 @@ class Corex(object):
         for i_loop in range(self.max_iter):
             self.moments = self._calculate_moments(x)  # Update moments based on w and samples, x.
             self.tc_history.append(self.tc)
-            self._update_ws()
+            self._update_ws(i_loop)
 
             if self.verbose:
                 print 'TC = %0.3f, additivity = %0.3f, total = %0.3f' % (
@@ -160,7 +159,7 @@ class Corex(object):
             return x.dot(self.ws.T)
 
     def predict(self, y):
-        return np.dot(self.moments["X_i Z_j"], y.T).T
+        return np.dot(self.moments["X_i Z_j"], y.T).T + self.mean_x
 
     def _calculate_moments(self, x):
         """Update moments based on the weights. Variance of X can be calculated once at the beginning and
@@ -179,22 +178,18 @@ class Corex(object):
         m["Y_j^2"] = np.diag(m["cy"])
         return m
 
-    def _update_ws(self):
+    def _update_ws(self, loop_count):
         """Update weights, and also the lagrange multipliers."""
         m = self.moments  # Shorthand for readability
+        if self.additive:  # Update lambda dynamically to get additive solutions
+            self.lam = (self.lam - 0.5 ** (loop_count / 50) * self.additivity / self.mis.sum(axis=0)).clip(0, 1)
         Q = m["X_i Y_j"].T / (m["X_i^2"] * m["Y_j^2"][:, np.newaxis] - (m["X_i Y_j"] ** 2).T)
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
-        if self.additive:  # Update lambda dynamically to get additive solutions
-            ai = np.einsum('ji,ij->i', self.noise**2 * Q - self.ws, m["X_i Y_j"])
-            bi = np.einsum('ji,ij->i', self.noise**2 * R - self.ws, m["X_i Y_j"])
-            # IXiY = - 0.5 * np.log(m["X_i^2 | Y"] / m["X_i^2"]) + 0.5 * np.log1p(self.m / self.n_samples)  # I(X_i;Y)
-            # sumI = np.sum(self.mis, axis=0) + 0.5 * self.m * np.log1p(1. / self.n_samples)  # with bias correction
-            self.lam = np.where(self.additivity < 0, expit(0.5 * np.log(np.abs(bi / ai))), 0)  # IXiY > sumI
         H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)
         np.fill_diagonal(H, 0)
         S = np.dot(H, self.ws)
-        self.ws = 0.5 * (self.ws + self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S))
-        # Alternate update rule: (no obvious benefit and requires matrix inversion!)
+        self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        # Alternate update rule: (no obvious benefit and requires matrix inversion! Seems less stable)
         # self.ws = np.linalg.solve(np.eye(self.m) + self.noise**2 * H, self.noise**2 * (self.lam * Q + (1 - self.lam) * R))
 
 
