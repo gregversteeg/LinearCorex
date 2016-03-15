@@ -23,13 +23,13 @@ def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output
     print 'Groups in groups.txt'
     labels = sieve.transform(data)
     data = np.hstack([data, labels])
-    output_groups(sieve.tcs, alpha, sieve.mis, column_label, prefix=prefix)
+    output_groups(sieve.tcs, alpha, np.abs(sieve.ws), column_label, prefix=prefix)
     output_labels(labels, row_label, prefix=prefix)
     if hasattr(sieve, "tc_history"):
         plot_convergence(sieve.tc_history, prefix=prefix)
 
     print 'Pairwise plots among high TC variables in "relationships"'
-    plot_top_relationships(data, alpha, sieve.mis, column_label, labels, prefix=prefix)
+    plot_top_relationships(data, alpha, np.abs(sieve.ws), column_label, labels, prefix=prefix)
 
 def output_groups(tcs, alpha, mis, column_label, thresh=0, prefix=''):
     f = safe_open(prefix + '/text_files/groups.txt', 'w+')
@@ -129,7 +129,7 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=17, break_long_words=False)), column_label)
 
     # Construct non-tree graph
-    weights = [corex.mis for corex in corexes]
+    weights = [np.abs(corex.ws) for corex in corexes]
     node_weights = [corex.tcs for corex in corexes]
     g = make_graph(weights, node_weights, column_label, max_edges=max_edges)
 
