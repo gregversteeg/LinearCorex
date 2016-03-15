@@ -47,7 +47,7 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=1000, noise=0.3, tol=1e-5, lam_init=0, additive=True,
+    def __init__(self, n_hidden=2, max_iter=1000, noise=0.3, tol=1e-5, lam_init=0.1, additive=True,
                  gaussianize_marginals=False, verbose=False, seed=None, copy=True, **kwargs):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
@@ -182,7 +182,7 @@ class Corex(object):
         """Update weights, and also the lagrange multipliers."""
         m = self.moments  # Shorthand for readability
         if self.additive:  # Update lambda dynamically to get additive solutions
-            self.lam = (self.lam - 0.5 ** (loop_count / 50) * self.additivity / self.mis.sum(axis=0)).clip(0, 1)
+            self.lam = (self.lam - 0.5 ** (loop_count / 50) * self.additivity / (self.mis.sum(axis=0))).clip(0, 1)
         Q = m["X_i Y_j"].T / (m["X_i^2"] * m["Y_j^2"][:, np.newaxis] - (m["X_i Y_j"] ** 2).T)
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
         H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)

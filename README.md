@@ -17,8 +17,9 @@ In the tests folder, try:
 ```
 python test_weak_correlations.py
 python test_faces.py
-python vis_corex.py tests/data/test_big5.csv --n_hidden=5 -v --no_row_names -o big5
-python vis_corex.py tests/data/adni_blood.csv --n_hidden=30 --missing=-1e6 -v -o adni
+python vis_corex.py tests/data/test_big5.csv --layers=5,1 -v --no_row_names -o big5
+python vis_corex.py tests/data/adni_blood.csv --layers=30,5,1 --missing=-1e6 -v -o adni
+python vis_corex.py tests/data/matrix.tcga_ov.geneset1.log2.varnorm.RPKM.txt --layers=30,5,1 --delimiter=' ' -v -o gene
 ```
 Each of these examples generates pairwise plots of relationships and a graph. 
 

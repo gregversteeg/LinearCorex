@@ -31,9 +31,6 @@ def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output
     print 'Pairwise plots among high TC variables in "relationships"'
     plot_top_relationships(data, alpha, sieve.mis, column_label, labels, prefix=prefix)
 
-    # vis_hierarchy(sieve, column_label, prefix=prefix, max_edges=max_edges)
-
-
 def output_groups(tcs, alpha, mis, column_label, thresh=0, prefix=''):
     f = safe_open(prefix + '/text_files/groups.txt', 'w+')
     h = safe_open(prefix + '/text_files/summary.txt', 'w+')
@@ -123,36 +120,22 @@ def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha
 
 # Hierarchical graph visualization utilities
 
-def vis_hierarchy(sieve, column_label, max_edges=200, prefix=''):
+def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     """Visualize a hierarchy of representations."""
-    import textwrap
-    column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=20)), column_label)
+    if column_label is None:
+        column_label = map(str, range(corexes[0].mis.shape[1]))
 
-    def f(j):
-        if j < sieve.nv:
-            return j
-        else:
-            return (1, j - sieve.nv)
+    import textwrap
+    column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=17, break_long_words=False)), column_label)
 
     # Construct non-tree graph
-    g = nx.DiGraph()
-    max_node_weight = np.max(sieve.tcs)
-    for i, c in enumerate(column_label):
-        if i < sieve.nv:
-            g.add_node(i)
-            g.node[i]['weight'] = 1
-            g.node[i]['label'] = c
-            g.node[i]['name'] = c  # JSON uses this field
-        else:
-            g.add_node(f(i))
-            g.node[f(i)]['weight'] = 0.33 * np.clip(sieve.tcs[i - sieve.nv] / max_node_weight, 0.33, 1)
-        if i >= sieve.nv:
-            g.add_weighted_edges_from([(f(j), (1, i - sieve.nv), sieve.mi_j(i - sieve.nv)[j]) for j in sieve.alpha[i - sieve.nv]])
+    weights = [corex.mis for corex in corexes]
+    node_weights = [corex.tcs for corex in corexes]
+    g = make_graph(weights, node_weights, column_label, max_edges=max_edges)
 
     # Display pruned version
     h = g.copy()  # trim(g.copy(), max_parents=max_parents, max_children=max_children)
-    h.remove_edges_from(sorted(h.edges(data=True), key=lambda q: q[2]['weight'])[:-max_edges])
-    edge2pdf(h, prefix + '/graphs/graph_%d' % max_edges, labels='label', directed=True, makepdf=True)
+    edge2pdf(h, prefix + '/graphs/graph_prune_' + str(max_edges), labels='label', directed=True, makepdf=True)
 
     # Display tree version
     tree = g.copy()
@@ -162,7 +145,6 @@ def vis_hierarchy(sieve, column_label, max_edges=200, prefix=''):
     # Output JSON files
     try:
         import os
-        print os.path.dirname(os.path.realpath(__file__))
         copyfile(os.path.dirname(os.path.realpath(__file__)) + '/tests/d3_files/force.html', prefix + '/graphs/force.html')
     except:
         print "Couldn't find 'force.html' file for visualizing d3 output"
@@ -289,6 +271,34 @@ def shorten(s, n=12):
     return s
 
 
+def make_graph(weights, node_weights, column_label, max_edges=100):
+    all_edges = np.hstack(map(np.ravel, weights))
+    max_edges = min(max_edges, len(all_edges))
+    w_thresh = np.sort(all_edges)[-max_edges]
+    print 'weight threshold is %f for graph with max of %f edges ' % (w_thresh, max_edges)
+    g = nx.DiGraph()
+    max_node_weight = max([max(w) for w in node_weights])
+    for layer, weight in enumerate(weights):
+        m, n = weight.shape
+        for j in range(m):
+            g.add_node((layer + 1, j))
+            g.node[(layer + 1, j)]['weight'] = 0.3 * node_weights[layer][j] / max_node_weight
+            for i in range(n):
+                if weight[j, i] > w_thresh:
+                    if weight[j, i] > w_thresh / 2:
+                        g.add_weighted_edges_from([( (layer, i), (layer + 1, j), 10 * weight[j, i])])
+                    else:
+                        g.add_weighted_edges_from([( (layer, i), (layer + 1, j), 0)])
+
+    # Label layer 0
+    for i, lab in enumerate(column_label):
+        g.add_node((0, i))
+        g.node[(0, i)]['label'] = lab
+        g.node[(0, i)]['name'] = lab  # JSON uses this field
+        g.node[(0, i)]['weight'] = 1
+    return g
+
+
 def trim(g, max_parents=False, max_children=False):
     for node in g:
         if max_parents:
@@ -304,6 +314,7 @@ def trim(g, max_parents=False, max_children=False):
     return g
 
 
+
 # Misc. utilities
 
 def safe_open(filename, mode):
@@ -315,8 +326,9 @@ def safe_open(filename, mode):
 if __name__ == '__main__':
     # Command line interface
     # Sample commands:
-    # python vis_sieve.py tests/test_data.csv
-    import sieve as sieve
+    # python vis_corex.py tests/test_data.csv
+    import linear_corex as lc
+    from time import time
     import csv
     import sys
     import traceback
@@ -345,9 +357,13 @@ if __name__ == '__main__':
                      help="Separator between entries in the data, default is ','.")
     parser.add_option_group(group)
 
-    group = OptionGroup(parser, "Sieve Options")
-    group.add_option("-k", "--n_hidden", dest="n_hidden", type="int", default=2,
-                     help="Latent factors take values 0, 1..k. Default k=2")
+    group = OptionGroup(parser, "CorEx Options")
+    group.add_option("-l", "--layers", dest="layers", type="string", default="2,1",
+                     help="Specify number of units at each layer: 5,3,1 has "
+                          "5 units at layer 1, 3 at layer 2, and 1 at layer 3")
+    group.add_option("-w", "--max_iter",
+                     action="store", dest="max_iter", type="int", default=1000,
+                     help="Max number of iterations to use.")
     parser.add_option_group(group)
 
     group = OptionGroup(parser, "Output Options")
@@ -370,13 +386,16 @@ if __name__ == '__main__':
         print "Run with '-h' option for usage help."
         sys.exit()
 
-    verbose = options.verbose
     np.set_printoptions(precision=3, suppress=True)  # For legible output from numpy
+    layers = map(int, options.layers.split(','))
+    if layers[-1] != 1:
+        layers.append(1)  # Last layer has one unit for convenience so that graph is fully connected.
+    verbose = options.verbose
 
     #Load data from csv file
     filename = args[0]
     with open(filename, 'rU') as csvfile:
-        reader = csv.reader(csvfile, delimiter=' ') #options.delimiter)
+        reader = csv.reader(csvfile, delimiter=options.delimiter)
         if options.nc:
             variable_names = None
         else:
@@ -407,16 +426,32 @@ if __name__ == '__main__':
         print '\nData summary: X has %d rows and %d columns' % X.shape
         print 'Variable names are: ' + ','.join(map(str, list(enumerate(variable_names))))
 
-    # Run Sieve on data
+    # Run CorEx on data
     if verbose:
-        print 'Getting Sieve results'
+        print 'Getting CorEx results'
     if not options.regraph:
-        s = sieve.Sieve(n_hidden=options.n_hidden, verbose=verbose, missing_values=options.missing).fit(X)
-        cPickle.dump(s, open(options.output + '_sieve.dat', 'w'))
+        for l, layer in enumerate(layers):
+            if verbose:
+                print "Layer ", l
+            if l == 0:
+                t0 = time()
+                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, max_iter=options.max_iter).fit(X)]
+                print 'Time for first layer: %0.2f' % (time() - t0)
+                X_prev = X
+            else:
+                X_prev = corexes[-1].transform(X_prev)
+                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, max_iter=options.max_iter).fit(X_prev))
+        for l, corex in enumerate(corexes):
+            # The learned model can be loaded again using ce.Corex().load(filename)
+            print 'TC at layer %d is: %0.3f' % (l, corex.tc)
+            cPickle.dump(corex, safe_open(options.output + '/layer_' + str(l) + '.dat', 'w'))
     else:
-        s = cPickle.load(options.output + '_sieve.dat')
+        corexes = [cPickle.load(options.output + '/layer_' + str(l) + '.dat') for l in range(len(layers))]
 
     # This line outputs plots showing relationships at the first layer
-    vis_rep(s, X, row_label=sample_names, column_label=variable_names, prefix=options.output, max_edges=options.max_edges)
+    vis_rep(corexes[0], X, row_label=sample_names, column_label=variable_names, prefix=options.output)
     # This line outputs a hierarchical networks structure in a .dot file in the "graphs" folder
     # And it tries to compile the dot file into a pdf using the command line utility sfdp (part of graphviz)
+
+    vis_hierarchy(corexes, column_label=variable_names, max_edges=options.max_edges,
+                  prefix=options.output)
