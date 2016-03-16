@@ -170,17 +170,18 @@ class Corex(object):
         if "X_i^2" in self.moments:
             var_x = self.moments["X_i^2"]
         else:
-            var_x = np.einsum('li,li->i', x, x) / len(x)  # Variance of x
+            var_x = np.einsum('li,li->i', x, x) / (len(x) - 1)  # Variance of x
         m["X_i^2"] = var_x
         m["X_i Y_j"] = x.T.dot(y) / len(y)  # nv by m,  <X_i Y_j_j>
         m["cy"] = self.ws.dot(m["X_i Y_j"]) + self.noise ** 2 * np.eye(self.m)  # cov(y.T), m by m
         m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
         m["X_i^2 | Y"] = m["X_i^2"] - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"])
         m["Y_j^2"] = np.diag(m["cy"])
-        r2 = m["X_i Y_j"]**2 / (m["X_i^2"][:, np.newaxis] * m["Y_j^2"])
-        m["q_i"] = q_func(r2 / (1. - r2)).clip(1e-10)
-        omf = m["X_i^2 | Y"] / m["X_i^2"]
-        m["Fi/1-Fi"] = (1 - omf) / omf
+        if self.additive:
+            r2 = m["X_i Y_j"]**2 / (m["X_i^2"][:, np.newaxis] * m["Y_j^2"])
+            m["q_i"] = q_func(r2 / (1. - r2)).clip(1e-10)
+            omf = m["X_i^2 | Y"] / m["X_i^2"]
+            m["Fi/1-Fi"] = (1 - omf) / omf
         return m
 
     def _update_ws(self, loop_count):

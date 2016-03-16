@@ -19,7 +19,7 @@ def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output
         row_label = map(str, range(len(data)))
     # column_label += ["Y%d" % j for j in range(sieve.m)]
 
-    alpha = sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 10)  # TODO: is that permanent?
+    alpha = sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 3)  # TODO: is that permanent?
     print 'Groups in groups.txt'
     labels = sieve.transform(data)
     data = np.hstack([data, labels])
@@ -129,7 +129,7 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=17, break_long_words=False)), column_label)
 
     # Construct non-tree graph
-    alphas = [corex.mis > (0.1 * np.max(corex.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / corex.n_samples) * 10) for corex in corexes]  # TODO: is that permanent?
+    alphas = [corex.mis > (0.1 * np.max(corex.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / corex.n_samples) * 3) for corex in corexes]  # TODO: is that permanent?
     weights = [alphas[k] * np.abs(corex.ws) / np.max(np.abs(corex.ws)) for k, corex in enumerate(corexes)]
     node_weights = [corex.tcs for corex in corexes]
     g = make_graph(weights, node_weights, column_label, max_edges=max_edges)
@@ -365,6 +365,9 @@ if __name__ == '__main__':
     group.add_option("-w", "--max_iter",
                      action="store", dest="max_iter", type="int", default=1000,
                      help="Max number of iterations to use.")
+    group.add_option("-a", "--additive",
+                     action="store_false", dest="additive", default=True,
+                     help="By default, we attempt to find 'additive' solutions. -a will turn this off.")
     parser.add_option_group(group)
 
     group = OptionGroup(parser, "Output Options")
@@ -436,7 +439,7 @@ if __name__ == '__main__':
                 print "Layer ", l
             if l == 0:
                 t0 = time()
-                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, max_iter=options.max_iter).fit(X)]
+                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, additive=options.additive, max_iter=options.max_iter).fit(X)]
                 print 'Time for first layer: %0.2f' % (time() - t0)
                 X_prev = X
             else:
