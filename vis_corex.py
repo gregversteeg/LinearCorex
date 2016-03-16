@@ -17,9 +17,9 @@ def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output
         column_label = map(str, range(data.shape[1]))
     if row_label is None:
         row_label = map(str, range(len(data)))
-    column_label += ["Y%d" % j for j in range(sieve.m)]
+    # column_label += ["Y%d" % j for j in range(sieve.m)]
 
-    alpha = sieve.mis > 0  # TODO: is that permanent?
+    alpha = sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 10)  # TODO: is that permanent?
     print 'Groups in groups.txt'
     labels = sieve.transform(data)
     data = np.hstack([data, labels])
@@ -129,7 +129,8 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=17, break_long_words=False)), column_label)
 
     # Construct non-tree graph
-    weights = [np.abs(corex.ws) for corex in corexes]
+    alphas = [corex.mis > (0.1 * np.max(corex.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / corex.n_samples) * 10) for corex in corexes]  # TODO: is that permanent?
+    weights = [alphas[k] * np.abs(corex.ws) / np.max(np.abs(corex.ws)) for k, corex in enumerate(corexes)]
     node_weights = [corex.tcs for corex in corexes]
     g = make_graph(weights, node_weights, column_label, max_edges=max_edges)
 
@@ -202,7 +203,7 @@ def edge2pdf(g, filename, threshold=0, position=None, labels=None, connected=Tru
     if connected:
         touching = list(set(sum([[a, b] for a, b in g.edges()], [])))
         g = nx.subgraph(g, touching)
-        print 'non-isolated nodes,edges', len(g.nodes()), len(g.edges())
+        print 'non-isolated nodes,edges', len(list(g.nodes())), len(list(g.edges()))
     f = safe_open(filename + '.dot', 'w+')
     if directed:
         f.write("strict digraph {\n".encode('utf-8'))
@@ -302,7 +303,7 @@ def make_graph(weights, node_weights, column_label, max_edges=100):
 def trim(g, max_parents=False, max_children=False):
     for node in g:
         if max_parents:
-            parents = g.successors(node)
+            parents = list(g.successors(node))
             weights = [g.edge[node][parent]['weight'] for parent in parents]
             for weak_parent in np.argsort(weights)[:-max_parents]:
                 g.remove_edge(node, parents[weak_parent])

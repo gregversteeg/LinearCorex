@@ -47,7 +47,7 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=1000, noise=0.3, tol=1e-5, lam_init=0.1, additive=True,
+    def __init__(self, n_hidden=2, max_iter=1000, noise=0.3, tol=1e-5, lam_init=0., additive=True,
                  gaussianize_marginals=False, verbose=False, seed=None, copy=True, **kwargs):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
@@ -76,6 +76,7 @@ class Corex(object):
     @property
     def mis(self):
         """All MIs"""
+        # Bias goes like -np.log1p(-1./self.n_samples)
         return self.calculate_mi(self.moments)
 
     @staticmethod
@@ -176,13 +177,22 @@ class Corex(object):
         m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
         m["X_i^2 | Y"] = m["X_i^2"] - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"])
         m["Y_j^2"] = np.diag(m["cy"])
+        r2 = m["X_i Y_j"]**2 / (m["X_i^2"][:, np.newaxis] * m["Y_j^2"])
+        m["q_i"] = q_func(r2 / (1. - r2)).clip(1e-10)
+        omf = m["X_i^2 | Y"] / m["X_i^2"]
+        m["Fi/1-Fi"] = (1 - omf) / omf
         return m
 
     def _update_ws(self, loop_count):
         """Update weights, and also the lagrange multipliers."""
         m = self.moments  # Shorthand for readability
         if self.additive:  # Update lambda dynamically to get additive solutions
-            self.lam = (self.lam - 0.5 ** (loop_count / 50) * self.additivity / (self.mis.sum(axis=0))).clip(0, 1)
+            H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)
+            np.fill_diagonal(H, 0)
+            S = np.dot(H, self.ws)
+            bi = m["Fi/1-Fi"] - np.einsum('ji,ij->i', S + self.ws / self.noise**2, m["X_i Y_j"])  # TODO: speed up
+            eta = np.abs(self.additivity / (self.mis.sum(axis=0))).clip(0, 1)
+            self.lam = ((1 - eta) * self.lam + eta * bi / m["q_i"]).clip(0, 1)
         Q = m["X_i Y_j"].T / (m["X_i^2"] * m["Y_j^2"][:, np.newaxis] - (m["X_i Y_j"] ** 2).T)
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
         H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)
@@ -208,3 +218,8 @@ def _sym_decorrelation(W):
     # u (resp. s) contains the eigenvectors (resp. square roots of
     # the eigenvalues) of W * W.T
     return np.dot(np.dot(u * (1. / np.sqrt(s)), u.T), W)
+
+
+def q_func(c):
+    # TODO: numerical accuracy? (e.g., if only one c is large)
+    return np.prod(1 + c, axis=1) - 1 - np.sum(c, axis=1)
