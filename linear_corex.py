@@ -122,14 +122,16 @@ class Corex(object):
         var_x = np.einsum('li,li->i', x, x) / (self.n_samples - 1)  # Variance of x
         self.ws = np.random.randn(self.m, self.nv) * self.noise ** 2 / np.sqrt(var_x)  # Randomly initialize weights
         self.lam = np.zeros(self.nv)  # Initialize lagrange multipliers
+        smooth = False  # Whether to smooth the updates is calculated based on delta
         if not 0 < self.mu < 1:
             self.mu = 1. / self.nv
 
         for i_loop in range(self.max_iter):
             self._update_moments(x)  # Update moments based on w and samples, x.
             old_w = self.ws.copy()
-            self._update_ws()
+            self._update_ws(smooth=smooth)
             delta = np.sqrt(((old_w - self.ws)**2).sum()) / self.noise**2  # Divide by noise to get scale-free quantity
+            smooth = (delta > 1000)
             # delta = np.mean(np.abs(self.o_history[-5:] - self.o_history[-1]))
             if self.additive:
                 if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
@@ -197,7 +199,7 @@ class Corex(object):
         m["Y_j^2"] = np.diag(m["cy"])
         return m
 
-    def _update_ws(self):
+    def _update_ws(self, smooth=False):
         """Update weights, and also the lagrange multipliers."""
         if self.additive:  # Update lambda dynamically to get additive solutions
             self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
@@ -207,7 +209,13 @@ class Corex(object):
         H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)
         np.fill_diagonal(H, 0)
         S = np.dot(H, self.ws)
-        self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        if smooth:
+            # When off-diagonal terms dominate, we get large fluctuations in w that can cause overflows
+            # Smoothing the update seems to prevent this catastrophe.
+            # However, in general smoothing seems to slow down convergence, so we don't do it all the time.
+            self.ws = 0.5 * self.ws + 0.5 * self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        else:
+            self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
         # print np.max(np.abs(self.ws)), np.min(self.lam), np.max(self.lam), np.min(m["X_i^2 | Y"]), np.min(self.additivity), np.max(self.additivity)
         # Alternate update rule: (no obvious benefit and requires matrix inversion! Seems less stable)
         # self.ws = np.linalg.solve(np.eye(self.m) + self.noise**2 * H, self.noise**2 * (lam * Q + (1 - lam) * R))
