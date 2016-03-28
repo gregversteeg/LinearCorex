@@ -47,7 +47,7 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=1000, noise=1., mu=0., tol=0.0001, additive=True,
+    def __init__(self, n_hidden=2, max_iter=5000, noise=1., mu=0., tol=0.0001, additive=True,
                  gaussianize_marginals=False, verbose=False, seed=None, copy=True, **kwargs):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
@@ -123,7 +123,7 @@ class Corex(object):
         self.ws = np.random.randn(self.m, self.nv) * self.noise ** 2 / np.sqrt(var_x)  # Randomly initialize weights
         self.lam = np.zeros(self.nv)  # Initialize lagrange multipliers
         fluctuating = False  # Whether to smooth the updates is calculated based on delta
-        if not 0 < self.mu < 1:
+        if not 0. < self.mu < 1.:
             self.mu = 1. / self.nv
 
         for i_loop in range(self.max_iter):
