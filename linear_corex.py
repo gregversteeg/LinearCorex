@@ -131,7 +131,7 @@ class Corex(object):
             old_w = self.ws.copy()
             self._update_ws(smooth=smooth)
             delta = np.sqrt(((old_w - self.ws)**2).sum()) / self.noise**2  # Divide by noise to get scale-free quantity
-            smooth = (delta > 1000)
+            smooth = (delta > 100000)
             # delta = np.mean(np.abs(self.o_history[-5:] - self.o_history[-1]))
             if self.additive:
                 if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
@@ -213,7 +213,7 @@ class Corex(object):
             # When off-diagonal terms dominate, we get large fluctuations in w that can cause overflows
             # Smoothing the update seems to prevent this catastrophe.
             # However, in general smoothing seems to slow down convergence, so we don't do it all the time.
-            self.ws = 0.5 * self.ws + 0.5 * self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+            self.ws = 0.9 * self.ws + 0.1 * self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
         else:
             self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
         # print np.max(np.abs(self.ws)), np.min(self.lam), np.max(self.lam), np.min(m["X_i^2 | Y"]), np.min(self.additivity), np.max(self.additivity)
