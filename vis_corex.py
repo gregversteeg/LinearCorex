@@ -23,13 +23,13 @@ def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output
     print 'Groups in groups.txt'
     labels = sieve.transform(data)
     data = np.hstack([data, labels])
-    output_groups(sieve.tcs, alpha, np.abs(sieve.ws), column_label, prefix=prefix)
+    output_groups(sieve.tcs, alpha, sieve.mis, column_label, prefix=prefix)
     output_labels(labels, row_label, prefix=prefix)
     if hasattr(sieve, "tc_history"):
         plot_convergence(sieve.tc_history, prefix=prefix)
 
     print 'Pairwise plots among high TC variables in "relationships"'
-    plot_top_relationships(data, alpha, np.abs(sieve.ws), column_label, labels, prefix=prefix)
+    plot_top_relationships(data, alpha, sieve.mis, column_label, labels, prefix=prefix)
 
 def output_groups(tcs, alpha, mis, column_label, thresh=0, prefix=''):
     f = safe_open(prefix + '/text_files/groups.txt', 'w+')
@@ -130,7 +130,8 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
 
     # Construct non-tree graph
     alphas = [corex.mis > (0.1 * np.max(corex.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / corex.n_samples) * 3) for corex in corexes]  # TODO: is that permanent?
-    weights = [alphas[k] * np.abs(corex.ws) / np.max(np.abs(corex.ws)) for k, corex in enumerate(corexes)]
+    # weights = [alphas[k] * np.abs(corex.ws) / np.max(np.abs(corex.ws)) for k, corex in enumerate(corexes)]
+    weights = [alphas[k] * corex.mis for k, corex in enumerate(corexes)]
     node_weights = [corex.tcs for corex in corexes]
     g = make_graph(weights, node_weights, column_label, max_edges=max_edges)
 
@@ -444,13 +445,13 @@ if __name__ == '__main__':
                 X_prev = X
             else:
                 X_prev = corexes[-1].transform(X_prev)
-                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, max_iter=options.max_iter).fit(X_prev))
+                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, additive=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
             print 'TC at layer %d is: %0.3f' % (l, corex.tc)
             cPickle.dump(corex, safe_open(options.output + '/layer_' + str(l) + '.dat', 'w'))
     else:
-        corexes = [cPickle.load(options.output + '/layer_' + str(l) + '.dat') for l in range(len(layers))]
+        corexes = [cPickle.load(open(options.output + '/layer_' + str(l) + '.dat')) for l in range(len(layers))]
 
     # This line outputs plots showing relationships at the first layer
     vis_rep(corexes[0], X, row_label=sample_names, column_label=variable_names, prefix=options.output)

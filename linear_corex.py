@@ -47,11 +47,12 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=1000, noise=0.3, tol=0.0001, additive=True,
+    def __init__(self, n_hidden=2, max_iter=1000, noise=1., mu=0., tol=0.0001, additive=True,
                  gaussianize_marginals=False, verbose=False, seed=None, copy=True, **kwargs):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
         self.noise = noise  # Sets the scale of Y
+        self.mu = mu  # Sets the initial step size for lagrange multipliers. If not in (0,1), it is set to 1./self.nv
         self.tol = tol  # Threshold for convergence
         self.gaussianize_marginals = gaussianize_marginals
         self.verbose = verbose
@@ -64,7 +65,6 @@ class Corex(object):
         self.ws = np.zeros((self.m, self.nv))  # m by nv array of weights
         self.additive = additive  # Whether or not to constrain to additive solutions
         self.lam = 0
-        self.mu = 0.0001  # Sets the initial step size for lagrange multipliers
         self.moments = {}  # dictionary of moments
         self.mean_x = None  # Mean is subtracted out, save for prediction/inversion
         self.tc_history = [0]  # Keep track of TC convergence for each factor
@@ -122,24 +122,24 @@ class Corex(object):
         var_x = np.einsum('li,li->i', x, x) / (self.n_samples - 1)  # Variance of x
         self.ws = np.random.randn(self.m, self.nv) * self.noise ** 2 / np.sqrt(var_x)  # Randomly initialize weights
         self.lam = np.zeros(self.nv)  # Initialize lagrange multipliers
+        if not 0 < self.mu < 1:
+            self.mu = 1. / self.nv
 
         for i_loop in range(self.max_iter):
             self._update_moments(x)  # Update moments based on w and samples, x.
             old_w = self.ws.copy()
             self._update_ws()
-            delta = np.sqrt(((old_w - self.ws)**2).sum())
+            delta = np.sqrt(((old_w - self.ws)**2).sum()) / self.noise**2  # Divide by noise to get scale-free quantity
             # delta = np.mean(np.abs(self.o_history[-5:] - self.o_history[-1]))
-            if self.additive:  # Update lambda dynamically to get additive solutions
-                self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
-            if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
-                if self.additivity.sum() < - 1. / self.n_samples * self.nv:
-                    if (self.add_history[-1] - self.add_history[-5]) / 5. < 0.02 / self.n_samples * self.nv:
-                        self.mu = min(1., self.mu * 2.)
-                        # print 'update mu', self.mu
+            if self.additive:
+                if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
+                    if self.additivity.sum() < - 1. / self.n_samples * self.nv:
+                        if (self.add_history[-1] - self.add_history[-5]) / 5. < 0.02 / self.n_samples * self.nv:
+                            self.mu = min(1., self.mu * 2.)
 
             if self.verbose:
-                print 'TC = %0.3f\tadd = %0.3f\tobj = %0.3f\tdelta = %0.5f' % \
-                      (self.tc, self.additivity.sum(), self.objective, delta)
+                print 'TC = %0.3f\tadd = %0.3f\tobj = %0.3f\tdelta = %0.5f\t\tmu %0.4f' % \
+                      (self.tc, self.additivity.sum(), self.objective, delta, self.mu)
             if delta < self.tol:  # Check for convergence
                 if self.verbose:
                     print '%d iterations to tol: %f' % (i_loop, self.tol)
@@ -148,7 +148,7 @@ class Corex(object):
             if self.verbose:
                 print "Warning: Convergence was not achieved in %d iterations. Increase max_iter." % self.max_iter
 
-        # print '%d iteration with delta: %0.5f' % (i_loop, delta)
+        # print '%d iteration with delta: %0.5f. Final mu: %0.3f' % (i_loop, delta, self.mu)
         order = np.argsort(-self.tcs)  # Largest TC components first.
         self.ws = self.ws[order]
         self.moments = self._calculate_moments(x)  # Update moments based on w and samples, x.
@@ -199,14 +199,16 @@ class Corex(object):
 
     def _update_ws(self):
         """Update weights, and also the lagrange multipliers."""
-        lam = self.lam
+        if self.additive:  # Update lambda dynamically to get additive solutions
+            self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
         m = self.moments  # Shorthand for readability
         Q = m["X_i Y_j"].T / (m["X_i^2"] * m["Y_j^2"][:, np.newaxis] - (m["X_i Y_j"] ** 2).T)
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
-        H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - lam)
+        H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)
         np.fill_diagonal(H, 0)
         S = np.dot(H, self.ws)
-        self.ws = self.noise**2 * (lam * Q + (1 - lam) * R - S)
+        self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        # print np.max(np.abs(self.ws)), np.min(self.lam), np.max(self.lam), np.min(m["X_i^2 | Y"]), np.min(self.additivity), np.max(self.additivity)
         # Alternate update rule: (no obvious benefit and requires matrix inversion! Seems less stable)
         # self.ws = np.linalg.solve(np.eye(self.m) + self.noise**2 * H, self.noise**2 * (lam * Q + (1 - lam) * R))
 
