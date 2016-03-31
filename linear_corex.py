@@ -122,16 +122,14 @@ class Corex(object):
         var_x = np.einsum('li,li->i', x, x) / (self.n_samples - 1)  # Variance of x
         self.ws = np.random.randn(self.m, self.nv) * self.noise ** 2 / np.sqrt(var_x)  # Randomly initialize weights
         self.lam = np.zeros(self.nv)  # Initialize lagrange multipliers
-        fluctuating = False  # Whether to smooth the updates is calculated based on delta
         if not 0. < self.mu < 1.:
             self.mu = 1. / self.nv
 
         for i_loop in range(self.max_iter):
             self._update_moments(x)  # Update moments based on w and samples, x.
             old_w = self.ws.copy()
-            self._update_ws(fluctuating=fluctuating)
+            self._update_ws()
             delta = np.sqrt(((old_w - self.ws)**2).sum()) / self.noise**2  # Divide by noise to get scale-free quantity
-            fluctuating = (delta > 1000)
             # delta = np.mean(np.abs(self.o_history[-5:] - self.o_history[-1]))
             if self.additive:
                 if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
@@ -188,18 +186,18 @@ class Corex(object):
         m = {}  # Dictionary of moments
         y = x.dot(self.ws.T)  # + self.noise * np.random.randn(len(x), self.m)  # Noise is included analytically
         if "X_i^2" in self.moments:
-            var_x = self.moments["X_i^2"]
+            m["X_i^2"] = self.moments["X_i^2"]
         else:
-            var_x = np.einsum('li,li->i', x, x) / (len(x) - 1)  # Variance of x
-        m["X_i^2"] = var_x
+            m["X_i^2"] = np.einsum('li,li->i', x, x) / (len(x) - 1)  # Variance of x, unbiased estimate
         m["X_i Y_j"] = x.T.dot(y) / len(y)  # nv by m,  <X_i Y_j_j>
         m["cy"] = self.ws.dot(m["X_i Y_j"]) + self.noise ** 2 * np.eye(self.m)  # cov(y.T), m by m
         m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
-        m["X_i^2 | Y"] = m["X_i^2"] - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"])
+        # m["X_i Z_j"] = jacobi(m["cy"], m["X_i Y_j"], self.moments.get("X_i Z_j", np.zeros(self.m)))  # Placeholder for potential speedup idea
+        m["X_i^2 | Y"] = (m["X_i^2"] - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))  # TODO: can go <=0 because of poor invert
         m["Y_j^2"] = np.diag(m["cy"])
         return m
 
-    def _update_ws(self, fluctuating=False):
+    def _update_ws(self):
         """Update weights, and also the lagrange multipliers."""
         if self.additive:  # Update lambda dynamically to get additive solutions
             self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
@@ -208,15 +206,8 @@ class Corex(object):
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
         H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)
         np.fill_diagonal(H, 0)
-        if fluctuating:
-            # When off-diagonal terms dominate, we get large fluctuations in w that can cause overflows
-            # An alternate update rule helps.
-            # However, in general it seems to slow down convergence, so we don't do it all the time.
-            self.ws = np.linalg.solve(np.eye(self.m) + self.noise**2 * H, self.noise**2 * (self.lam * Q + (1 - self.lam) * R))
-        else:
-            S = np.dot(H, self.ws)
-            self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
-        # print np.max(np.abs(self.ws)), np.min(self.lam), np.max(self.lam), np.min(m["X_i^2 | Y"]), np.min(self.additivity), np.max(self.additivity)
+        S = np.dot(H, self.ws)
+        self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
 
 
 def gaussianize(x):
@@ -226,16 +217,13 @@ def gaussianize(x):
     return np.array([norm.ppf((rankdata(x_i) - 0.5) / len(x_i)) for x_i in x.T]).T
 
 
-def _sym_decorrelation(W):
-    """ Symmetric decorrelation
-    i.e. W <- (W * W.T) ^{-1/2} * W
-    """
-    s, u = np.linalg.eigh(np.dot(W, W.T))
-    # u (resp. s) contains the eigenvectors (resp. square roots of
-    # the eigenvalues) of W * W.T
-    return np.dot(np.dot(u * (1. / np.sqrt(s)), u.T), W)
-
-
-def q_func(c):
-    # TODO: numerical accuracy? (e.g., if only one c is large)
-    return np.prod(1 + c, axis=1) - 1 - np.sum(c, axis=1)
+def jacobi(mat, b, x0, n_iter=5):
+    """Approximate solution to the linear system mat.x = b using the Jacobi method.
+    mat is size m by m, b is size n by m, x0 is size n by m."""
+    d_inv = 1. / np.diagonal(mat)
+    off_d = mat.copy()
+    np.fill_diagonal(off_d, 0)
+    for _ in range(n_iter):
+        x1 = d_inv * (b - np.dot(off_d, x0.T).T)
+        x0 = x1.copy()
+    return x1

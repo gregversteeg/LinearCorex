@@ -1,10 +1,15 @@
 # Linear Total Correlation Explanation (CorEx)
 
-While this version of CorEx makes some strong assumptions: latent factors are linear functions of the data and we assume that the input 
- is drawn from a multivariate Gaussian, the algorithm is fast and scalable. 
-  It avoids heuristic assumptions about estimating connectivity (called alpha in previous corex work). 
- 
-Instead of lower bounding TC_L(X;Y), we are able to optimize it exactly in the linear case. It turns out that the optima of this objective 
+What are the linear functions of the data that explain as much of the dependence as possible? This code implements
+a fixed point iteration scheme that gives solutions for this problem. 
+
+Previous versions of CorEx worked for discrete data, and could be applied to continuous data with some hacks. 
+This is the first truly continuous version of CorEx. While this extension required assumptions of linearity, the 
+advantage is that the code is pretty fast since it only relies on matrix algebra. In principle it could be 
+further accelerated using GPUs. 
+
+Instead of lower bounding TC_L(X;Y) as we do for discrete CorEx, 
+we are able to optimize it exactly in the linear case. It turns out that the optima of this objective 
 may have an undesirable property: information about the X_i's can be stored in a super-additive way in the latent factors. 
 In other words, to predict a single variable you need to combine info from all the latent factors. Therefore, we 
 add a constraint that the solutions should be additive (information in latent factors about each variable X_i adds). 
