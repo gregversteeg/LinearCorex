@@ -67,45 +67,19 @@ class Corex(object):
         self.lam = 0
         self.moments = {}  # dictionary of moments
         self.mean_x = None  # Mean is subtracted out, save for prediction/inversion
-        self.tc_history = [0]  # Keep track of TC convergence for each factor
-        self.o_history = [0]  # Keep track of objective
-        self.add_history = [0]  # Keep track of additivity
-        if verbose:
+        self.history = np.zeros((max_iter, 3))  # Keep track of values for TC, additivity and objective
+        if verbose > 1:
             np.set_printoptions(precision=3, suppress=True, linewidth=160)
             print 'Linear CorEx with %d latent factors' % n_hidden
 
-    # TODO: I'd like to be able to calculate all these properties for transformed data.
-    @property
-    def mis(self):
-        """All MIs"""
-        # Bias goes like -np.log1p(-1./self.n_samples)
-        return self.calculate_mi(self.moments)
-
     @staticmethod
     def calculate_mi(moments):
-        return (- 0.5 * np.log(
-                1 - moments["X_i Y_j"] ** 2 / (moments["Y_j^2"] * moments["X_i^2"][:, np.newaxis]))).T
-
-    @property
-    def tcs(self):
-        """TC(X;Y_j)"""
-        mi_yj_x = 0.5 * np.log(self.moments["Y_j^2"]) - 0.5 * np.log(self.noise ** 2)
-        return np.sum(self.mis, axis=1) - mi_yj_x
+        return (- 0.5 * np.log(1 - moments["X_i Y_j"] ** 2 / (moments["Y_j^2"] * moments["X_i^2"][:, np.newaxis]))).T
 
     @property
     def tc(self):
         """Sum_j TC(X;Y_j)"""
-        return np.sum(self.tcs)
-
-    @property
-    def additivity(self):
-        """TC(Y;X_i)."""
-        mi_xi_y = 0.5 * np.log(self.moments["X_i^2"]) - 0.5 * np.log(self.moments["X_i^2 | Y"])
-        return np.sum(self.mis, axis=0) - mi_xi_y
-
-    @property
-    def objective(self):
-        return self.tc - np.sum(self.additivity)
+        return self.tcs.sum()
 
     def fit_transform(self, x, **kwargs):
         self.fit(x)
@@ -121,23 +95,28 @@ class Corex(object):
             x -= self.mean_x
         var_x = np.einsum('li,li->i', x, x) / (self.n_samples - 1)  # Variance of x
         self.ws = np.random.randn(self.m, self.nv) * self.noise ** 2 / np.sqrt(var_x)  # Randomly initialize weights
+        # self.ws *= np.random.randint(0, 2, (self.m, self.nv))  # Make initial weights sparse
         self.lam = np.zeros(self.nv)  # Initialize lagrange multipliers
         if not 0. < self.mu < 1.:
             self.mu = 1. / self.nv
 
         for i_loop in range(self.max_iter):
-            self._update_moments(x)  # Update moments based on w and samples, x.
+
             old_w = self.ws.copy()
+            self._update_moments(x)  # Update moments based on w and samples, x.
+            self.history[i_loop] = (self.tc, self.additivity.sum(), self.objective)
+            if self.additive:  # Update lambda dynamically to get additive solutions
+                self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
             self._update_ws()
-            delta = np.sqrt(((old_w - self.ws)**2).sum()) / self.noise**2  # Divide by noise to get scale-free quantity
-            # delta = np.mean(np.abs(self.o_history[-5:] - self.o_history[-1]))
-            if self.additive:
+
+            if self.additive:  # Adapt mu, the lambda step size, if necessary
                 if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
                     if self.additivity.sum() < - 1. / self.n_samples * self.nv:
-                        if (self.add_history[-1] - self.add_history[-5]) / 5. < 0.02 / self.n_samples * self.nv:
+                        if (self.history[i_loop, 1] - self.history[i_loop-5, 1]) / 5. < 0.02 / self.n_samples * self.nv:
                             self.mu = min(1., self.mu * 2.)
 
-            if self.verbose:
+            delta = np.sqrt(((old_w - self.ws)**2).sum()) / self.noise**2  # Divide by noise to get scale-free quantity
+            if self.verbose > 1:
                 print 'TC = %0.3f\tadd = %0.3f\tobj = %0.3f\tdelta = %0.5f\t\tmu %0.4f' % \
                       (self.tc, self.additivity.sum(), self.objective, delta, self.mu)
             if delta < self.tol:  # Check for convergence
@@ -146,12 +125,12 @@ class Corex(object):
                 break
         else:
             if self.verbose:
-                print "Warning: Convergence was not achieved in %d iterations. Increase max_iter." % self.max_iter
+                print "Warning: Convergence not achieved in %d iterations. Final delta: %f" % (self.max_iter, delta)
 
-        # print '%d iteration with delta: %0.5f. Final mu: %0.3f' % (i_loop, delta, self.mu)
+        self.history = self.history[:i_loop + 1]
         order = np.argsort(-self.tcs)  # Largest TC components first.
         self.ws = self.ws[order]
-        self.moments = self._calculate_moments(x)  # Update moments based on w and samples, x.
+        self._update_moments(x)  # Update moments based on w and samples, x.
         return self
 
     def transform(self, x, details=False):
@@ -174,16 +153,10 @@ class Corex(object):
         return np.dot(self.moments["X_i Z_j"], y.T).T + self.mean_x
 
     def _update_moments(self, x):
-        """Update moments and save some stats about convergence."""
-        self.moments = self._calculate_moments(x)
-        self.tc_history.append(self.tc)
-        self.o_history.append(self.objective)
-        self.add_history.append(self.additivity.sum())
-
-    def _calculate_moments(self, x):
-        """Calculate moments based on the weights and samples. Variance of X can be calculated once at the beginning and
-        saved to eliminate wasted effort. (When we transform new data, though, we have to calculate variance.)"""
-        m = {}  # Dictionary of moments
+        """Calculate moments based on the weights and samples. We also calculate and save MI, TC, additivity, and
+        the value of the objective."""
+        # TODO: I'd like to be able to calculate all these properties for transformed data.
+        m = self.moments  # Dictionary of moments
         y = x.dot(self.ws.T)  # + self.noise * np.random.randn(len(x), self.m)  # Noise is included analytically
         if "X_i^2" in self.moments:
             m["X_i^2"] = self.moments["X_i^2"]
@@ -194,20 +167,26 @@ class Corex(object):
         m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
         # m["X_i Z_j"] = jacobi(m["cy"], m["X_i Y_j"], self.moments.get("X_i Z_j", np.zeros(self.m)))  # Placeholder for potential speedup idea
         m["X_i^2 | Y"] = (m["X_i^2"] - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))  # TODO: can go <=0 because of poor invert
-        m["Y_j^2"] = np.diag(m["cy"])
-        return m
+        assert np.all(m["X_i^2 | Y"] > 0), "Negative expected covariance suggests numerical instability in inversion of Y covariance"
+        m["Y_j^2"] = np.diag(m["cy"]).copy()
+        self.mis = self.calculate_mi(m)
+        mi_yj_x = 0.5 * np.log(m["Y_j^2"]) - 0.5 * np.log(self.noise ** 2)
+        mi_xi_y = 0.5 * np.log(m["X_i^2"]) - 0.5 * np.log(m["X_i^2 | Y"])
+        self.tcs = self.mis.sum(axis=1) - mi_yj_x
+        self.additivity = self.mis.sum(axis=0) - mi_xi_y
+        self.objective = self.tc - self.additivity.sum()
 
     def _update_ws(self):
         """Update weights, and also the lagrange multipliers."""
-        if self.additive:  # Update lambda dynamically to get additive solutions
-            self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
         m = self.moments  # Shorthand for readability
-        Q = m["X_i Y_j"].T / (m["X_i^2"] * m["Y_j^2"][:, np.newaxis] - (m["X_i Y_j"] ** 2).T)
-        R = m["X_i Z_j"].T / m["X_i^2 | Y"]
-        H = np.einsum('ir,i,is,i->rs', m["X_i Z_j"], 1. / m["X_i^2 | Y"], m["X_i Z_j"], 1. - self.lam)
+        H = ((1. - self.lam) / m["X_i^2 | Y"] * m["X_i Z_j"].T).dot(m["X_i Z_j"])  # np.einsum('ir,i,is->rs', m["X_i Z_j"], (1. - self.lam) / m["X_i^2 | Y"], m["X_i Z_j"])
         np.fill_diagonal(H, 0)
-        S = np.dot(H, self.ws)
-        self.ws = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        update, inhibit = dominant_subset(H, 1. / self.noise**2)
+        Q = m["X_i Y_j"].T[update] / (m["X_i^2"] * m["Y_j^2"][update, np.newaxis] - m["X_i Y_j"].T[update] ** 2)
+        R = m["X_i Z_j"].T[update] / m["X_i^2 | Y"]
+        S = np.dot(H[update], self.ws)
+        self.ws[update] = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        # self.ws[inhibit] *= 0.5
 
 
 def gaussianize(x):
@@ -223,7 +202,27 @@ def jacobi(mat, b, x0, n_iter=5):
     d_inv = 1. / np.diagonal(mat)
     off_d = mat.copy()
     np.fill_diagonal(off_d, 0)
-    for _ in range(n_iter):
+    while True:
         x1 = d_inv * (b - np.dot(off_d, x0.T).T)
+        if ((x0 - x1)**2).sum() / (x0**2).sum() < 0.01:
+            break
         x0 = x1.copy()
     return x1
+
+
+def dominant_subset(H, threshold):
+    """Pick a submatrix of off-diagonal matrix, H, that is diagonally dominant."""
+    H = np.abs(H)
+    scores = np.sum(H, axis=0)
+    update = list(range(len(H)))
+    while np.any(scores > threshold):
+        p = scores / scores.sum()
+        i = np.random.choice(len(scores), p=p)  # weighted random
+        # i = np.random.choice(len(scores))  # random
+        # i = np.argmax(scores)  # Greedy
+        update.pop(i)
+        subH = H[update][:, update]
+        scores = np.sum(subH, axis=0)
+    inhibit = list(set(range(len(H))) - set(update))
+    # print update, inhibit
+    return update, inhibit
