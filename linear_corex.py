@@ -99,15 +99,17 @@ class Corex(object):
         self.lam = np.zeros(self.nv)  # Initialize lagrange multipliers
         if not 0. < self.mu < 1.:
             self.mu = 1. / self.nv
+        self.updates = np.ones(self.m)  # Keep track of number of updates for each latent factor
+        delta = 0
 
         for i_loop in range(self.max_iter):
 
             old_w = self.ws.copy()
             self._update_moments(x)  # Update moments based on w and samples, x.
             self.history[i_loop] = (self.tc, self.additivity.sum(), self.objective)
-            if self.additive:  # Update lambda dynamically to get additive solutions
+            if self.additive and i_loop > 0:  # Update lambda dynamically to get additive solutions
                 self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
-            self._update_ws()
+            self._update_ws(delta)
 
             if self.additive:  # Adapt mu, the lambda step size, if necessary
                 if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
@@ -165,9 +167,9 @@ class Corex(object):
         m["X_i Y_j"] = x.T.dot(y) / len(y)  # nv by m,  <X_i Y_j_j>
         m["cy"] = self.ws.dot(m["X_i Y_j"]) + self.noise ** 2 * np.eye(self.m)  # cov(y.T), m by m
         m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
-        # m["X_i Z_j"] = jacobi(m["cy"], m["X_i Y_j"], self.moments.get("X_i Z_j", np.zeros(self.m)))  # Placeholder for potential speedup idea
-        m["X_i^2 | Y"] = (m["X_i^2"] - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))  # TODO: can go <=0 because of poor invert
-        assert np.all(m["X_i^2 | Y"] > 0), "Negative expected covariance suggests numerical instability in inversion of Y covariance"
+        m["X_i^2 | Y"] = (m["X_i^2"] - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))
+        assert np.all(m["X_i^2 | Y"] > 0), \
+            "Negative expected covariance suggests numerical instability in inversion of covariance matrix for Y."
         m["Y_j^2"] = np.diag(m["cy"]).copy()
         self.mis = self.calculate_mi(m)
         mi_yj_x = 0.5 * np.log(m["Y_j^2"]) - 0.5 * np.log(self.noise ** 2)
@@ -176,17 +178,22 @@ class Corex(object):
         self.additivity = self.mis.sum(axis=0) - mi_xi_y
         self.objective = self.tc - self.additivity.sum()
 
-    def _update_ws(self):
+    def _update_ws(self, delta):
         """Update weights, and also the lagrange multipliers."""
         m = self.moments  # Shorthand for readability
         H = ((1. - self.lam) / m["X_i^2 | Y"] * m["X_i Z_j"].T).dot(m["X_i Z_j"])  # np.einsum('ir,i,is->rs', m["X_i Z_j"], (1. - self.lam) / m["X_i^2 | Y"], m["X_i Z_j"])
         np.fill_diagonal(H, 0)
-        update, inhibit = dominant_subset(H, 1. / self.noise**2)
+        if delta > 10:
+            update = dominant_subset(H, 1. / self.noise**2, self.updates)
+        else:
+            update = list(range(self.m))
+        self.updates[update] += 1
         Q = m["X_i Y_j"].T[update] / (m["X_i^2"] * m["Y_j^2"][update, np.newaxis] - m["X_i Y_j"].T[update] ** 2)
         R = m["X_i Z_j"].T[update] / m["X_i^2 | Y"]
         S = np.dot(H[update], self.ws)
         self.ws[update] = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
-        # self.ws[inhibit] *= 0.5
+        if self.verbose > 2:
+            print 'updating %d / %d' % (len(update), self.m)
 
 
 def gaussianize(x):
@@ -196,33 +203,19 @@ def gaussianize(x):
     return np.array([norm.ppf((rankdata(x_i) - 0.5) / len(x_i)) for x_i in x.T]).T
 
 
-def jacobi(mat, b, x0, n_iter=5):
-    """Approximate solution to the linear system mat.x = b using the Jacobi method.
-    mat is size m by m, b is size n by m, x0 is size n by m."""
-    d_inv = 1. / np.diagonal(mat)
-    off_d = mat.copy()
-    np.fill_diagonal(off_d, 0)
-    while True:
-        x1 = d_inv * (b - np.dot(off_d, x0.T).T)
-        if ((x0 - x1)**2).sum() / (x0**2).sum() < 0.01:
-            break
-        x0 = x1.copy()
-    return x1
-
-
-def dominant_subset(H, threshold):
+def dominant_subset(H, threshold, updates):
     """Pick a submatrix of off-diagonal matrix, H, that is diagonally dominant."""
-    H = np.abs(H)
+    H = np.abs(H) / threshold
     scores = np.sum(H, axis=0)
     update = list(range(len(H)))
-    while np.any(scores > threshold):
-        p = scores / scores.sum()
+    while np.any(scores > 1):
+        p = scores * updates[update]
+        p /= p.sum()
         i = np.random.choice(len(scores), p=p)  # weighted random
         # i = np.random.choice(len(scores))  # random
         # i = np.argmax(scores)  # Greedy
         update.pop(i)
         subH = H[update][:, update]
         scores = np.sum(subH, axis=0)
-    inhibit = list(set(range(len(H))) - set(update))
     # print update, inhibit
-    return update, inhibit
+    return update

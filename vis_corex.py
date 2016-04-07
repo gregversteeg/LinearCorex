@@ -376,8 +376,8 @@ if __name__ == '__main__':
                      action="store", dest="output", type="string", default="corex_output",
                      help="A directory to put all output files.")
     group.add_option("-v", "--verbose",
-                     action="store_true", dest="verbose", default=False,
-                     help="Print rich outputs while running.")
+                     action="store", dest="verbose", type="int", default=0,
+                     help="Print rich outputs while running (different levels of verbosity: 0,1,2).")
     group.add_option("-e", "--edges",
                      action="store", dest="max_edges", type="int", default=200,
                      help="Show at most this many edges in graphs.")
@@ -440,12 +440,12 @@ if __name__ == '__main__':
                 print "Layer ", l
             if l == 0:
                 t0 = time()
-                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, additive=options.additive, max_iter=options.max_iter).fit(X)]
+                corexes = [lc.Corex(n_hidden=layer, verbose=2 * verbose, additive=options.additive, max_iter=options.max_iter).fit(X)]
                 print 'Time for first layer: %0.2f' % (time() - t0)
                 X_prev = X
             else:
                 X_prev = corexes[-1].transform(X_prev)
-                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, additive=options.additive, max_iter=options.max_iter).fit(X_prev))
+                corexes.append(lc.Corex(n_hidden=layer, verbose=2 * verbose, additive=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
             print 'TC at layer %d is: %0.3f' % (l, corex.tc)
