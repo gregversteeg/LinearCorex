@@ -197,8 +197,6 @@ class Corex(object):
         if self.verbose >= 2:
             print 'updating %d / %d' % (len(update), self.m), np.min(self.lam), np.max(self.lam), np.mean(self.lam)
 
-        # TESTing if I messed up git
-
 
 def gaussianize(x):
     """Return an empirically gaussianized version of either 1-d or 2-d data(processed column-wise)"""
