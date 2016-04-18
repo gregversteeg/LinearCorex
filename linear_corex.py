@@ -47,12 +47,12 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=5000, noise=1., mu=0., tol=0.0001, additive=True,
+    def __init__(self, n_hidden=2, max_iter=10000, noise=1., lam=0., mu=0.01, tol=0.0001, additive=True,
                  gaussianize_marginals=False, verbose=False, seed=None, copy=True, **kwargs):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
         self.noise = noise  # Sets the scale of Y
-        self.mu = mu  # Sets the initial step size for lagrange multipliers. If not in (0,1), it is set to 1./self.nv
+        self.mu = mu  # Initial step size for lagrange multiplier update
         self.tol = tol  # Threshold for convergence
         self.gaussianize_marginals = gaussianize_marginals
         self.verbose = verbose
@@ -64,9 +64,10 @@ class Corex(object):
         self.n_samples, self.nv = 0, 0  # Number of samples/variables in input data
         self.ws = np.zeros((self.m, self.nv))  # m by nv array of weights
         self.additive = additive  # Whether or not to constrain to additive solutions
-        self.lam = 0
+        self.lam = lam
         self.moments = {}  # dictionary of moments
         self.mean_x = None  # Mean is subtracted out, save for prediction/inversion
+        self.updates = np.ones(self.m)  # Keep track of number of updates for each latent factor
         self.history = np.zeros((max_iter, 3))  # Keep track of values for TC, additivity and objective
         if verbose > 1:
             np.set_printoptions(precision=3, suppress=True, linewidth=160)
@@ -93,31 +94,27 @@ class Corex(object):
         else:
             self.mean_x = x.mean(axis=0)
             x -= self.mean_x
-        var_x = np.einsum('li,li->i', x, x) / (self.n_samples - 1)  # Variance of x
-        self.ws = np.random.randn(self.m, self.nv) * self.noise ** 2 / np.sqrt(var_x)  # Randomly initialize weights
-        # self.ws *= np.random.randint(0, 2, (self.m, self.nv))  # Make initial weights sparse
-        self.lam = np.zeros(self.nv)  # Initialize lagrange multipliers
-        if not 0. < self.mu < 1.:
-            self.mu = 1. / self.nv
-        self.updates = np.ones(self.m)  # Keep track of number of updates for each latent factor
-        delta = 0
+        var_x = np.einsum('li,li->i', x, x).clip(1e-10) / (self.n_samples - 1)  # Variance of x
+        if self.ws.size == 0:  # Randomly initialize weights if not set
+            self.ws = np.random.randn(self.m, self.nv) * self.noise ** 2 / np.sqrt(var_x)
+        self.lam = self.lam * np.ones(self.nv)  # Initialize lagrange multipliers
+        delta = np.inf
 
         for i_loop in range(self.max_iter):
-
             old_w = self.ws.copy()
             self._update_moments(x)  # Update moments based on w and samples, x.
-            self.history[i_loop] = (self.tc, self.additivity.sum(), self.objective)
+            self.history[i_loop] = (self.tc, self.additivity.sum(), self.objective)  # Record convergence stats
             if self.additive and i_loop > 0:  # Update lambda dynamically to get additive solutions
                 self.lam = (self.lam - self.mu * self.additivity).clip(0, 1)
-            self._update_ws(delta)
+            self._update_ws(i_loop)  # Update weights
 
             if self.additive:  # Adapt mu, the lambda step size, if necessary
                 if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
-                    if self.additivity.sum() < - 1. / self.n_samples * self.nv:
-                        if (self.history[i_loop, 1] - self.history[i_loop-5, 1]) / 5. < 0.02 / self.n_samples * self.nv:
-                            self.mu = min(1., self.mu * 2.)
+                    if self.additivity.sum() < - 0.01 * self.objective:
+                        if (self.history[i_loop, 1] - self.history[i_loop-5, 1]) / 5. <= - 0.1 * self.additivity.sum():
+                            self.mu = min(1., self.mu * 1.5)
 
-            delta = np.sqrt(((old_w - self.ws)**2).sum()) / self.noise**2  # Divide by noise to get scale-free quantity
+            delta = np.max(np.sqrt(((old_w - self.ws)**2).sum(axis=1) / (self.ws**2).sum(axis=1)))  # max relative change for each factor
             if self.verbose > 1:
                 print 'TC = %0.3f\tadd = %0.3f\tobj = %0.3f\tdelta = %0.5f\t\tmu %0.4f' % \
                       (self.tc, self.additivity.sum(), self.objective, delta, self.mu)
@@ -163,7 +160,7 @@ class Corex(object):
         if "X_i^2" in self.moments:
             m["X_i^2"] = self.moments["X_i^2"]
         else:
-            m["X_i^2"] = np.einsum('li,li->i', x, x) / (len(x) - 1)  # Variance of x, unbiased estimate
+            m["X_i^2"] = np.einsum('li,li->i', x, x).clip(1e-10) / (len(x) - 1)  # Variance of x, unbiased estimate
         m["X_i Y_j"] = x.T.dot(y) / len(y)  # nv by m,  <X_i Y_j_j>
         m["cy"] = self.ws.dot(m["X_i Y_j"]) + self.noise ** 2 * np.eye(self.m)  # cov(y.T), m by m
         m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
@@ -178,12 +175,14 @@ class Corex(object):
         self.additivity = self.mis.sum(axis=0) - mi_xi_y
         self.objective = self.tc - self.additivity.sum()
 
-    def _update_ws(self, delta):
+    def _update_ws(self, i_loop):
         """Update weights, and also the lagrange multipliers."""
         m = self.moments  # Shorthand for readability
         H = ((1. - self.lam) / m["X_i^2 | Y"] * m["X_i Z_j"].T).dot(m["X_i Z_j"])  # np.einsum('ir,i,is->rs', m["X_i Z_j"], (1. - self.lam) / m["X_i^2 | Y"], m["X_i Z_j"])
         np.fill_diagonal(H, 0)
-        if delta > 10:
+        if self.verbose == 3:
+            print H
+        if np.max(np.abs(H)) > 1. / self.noise**2:
             update = dominant_subset(H, 1. / self.noise**2, self.updates)
         else:
             update = list(range(self.m))
@@ -191,9 +190,12 @@ class Corex(object):
         Q = m["X_i Y_j"].T[update] / (m["X_i^2"] * m["Y_j^2"][update, np.newaxis] - m["X_i Y_j"].T[update] ** 2)
         R = m["X_i Z_j"].T[update] / m["X_i^2 | Y"]
         S = np.dot(H[update], self.ws)
-        self.ws[update] = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
-        if self.verbose > 2:
-            print 'updating %d / %d' % (len(update), self.m)
+        if i_loop < 10:
+            self.ws[update] = 0.5 * self.ws[update] + 0.5 * self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        else:
+            self.ws[update] = self.noise**2 * (self.lam * Q + (1 - self.lam) * R - S)
+        if self.verbose >= 2:
+            print 'updating %d / %d' % (len(update), self.m), np.min(self.lam), np.max(self.lam), np.mean(self.lam)
 
 
 def gaussianize(x):
@@ -213,7 +215,7 @@ def dominant_subset(H, threshold, updates):
         p /= p.sum()
         i = np.random.choice(len(scores), p=p)  # weighted random
         # i = np.random.choice(len(scores))  # random
-        # i = np.argmax(scores)  # Greedy
+        # i = np.argmax(p)  # Greedy
         update.pop(i)
         subH = H[update][:, update]
         scores = np.sum(subH, axis=0)
