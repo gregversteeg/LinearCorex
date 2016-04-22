@@ -47,7 +47,7 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=10000, noise=1., lam=0., mu=0.01, tol=0.0001, additive=True,
+    def __init__(self, n_hidden=2, max_iter=10000, noise=1., lam=0., mu=0.001, tol=0.0001, additive=True,
                  gaussianize_marginals=False, verbose=False, seed=None, copy=True, **kwargs):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
@@ -109,12 +109,12 @@ class Corex(object):
             self._update_ws(i_loop)  # Update weights
 
             if self.additive:  # Adapt mu, the lambda step size, if necessary
-                if i_loop % 10 == 9 and i_loop < self.max_iter / 10:
-                    if self.additivity.sum() < - 0.01 * self.objective:
-                        if (self.history[i_loop, 1] - self.history[i_loop-5, 1]) / 5. <= - 0.1 * self.additivity.sum():
-                            self.mu = min(1., self.mu * 1.5)
+                mu = 0.1 / (-np.min(self.additivity))
+                if mu > self.mu and self.additivity.sum() < -0.1 * self.objective:
+                    self.mu *= 1.1
+                self.mu = np.clip(self.mu, 0, 10)
 
-            delta = np.max(np.sqrt(((old_w - self.ws)**2).sum(axis=1) / (self.ws**2).sum(axis=1)))  # max relative change for each factor
+            delta = np.max(np.sqrt((var_x * (old_w - self.ws)**2).sum(axis=1) / (var_x * self.ws**2).sum(axis=1)))  # max relative change for each factor
             if self.verbose > 1:
                 print 'TC = %0.3f\tadd = %0.3f\tobj = %0.3f\tdelta = %0.5f\t\tmu %0.4f' % \
                       (self.tc, self.additivity.sum(), self.objective, delta, self.mu)
