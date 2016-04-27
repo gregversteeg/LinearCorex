@@ -25,8 +25,8 @@ def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output
     data = np.hstack([data, labels])
     output_groups(sieve.tcs, alpha, sieve.mis, column_label, prefix=prefix)
     output_labels(labels, row_label, prefix=prefix)
-    if hasattr(sieve, "tc_history"):
-        plot_convergence(sieve.tc_history, prefix=prefix)
+    if hasattr(sieve, "history"):
+        plot_convergence(sieve.history, prefix=prefix)
 
     print 'Pairwise plots among high TC variables in "relationships"'
     plot_top_relationships(data, alpha, sieve.mis, column_label, labels, prefix=prefix)
@@ -57,12 +57,12 @@ def output_labels(labels, row_label, prefix=''):
     f.close()
 
 
-def plot_convergence(tc_history, prefix=''):
+def plot_convergence(history, prefix=''):
 
-    pylab.plot(tc_history)
+    pylab.plot(history)
     pylab.xlabel('# iterations')
-    pylab.ylabel('$TC_L(X;Y)$')
-    pylab.suptitle('Convergence of $TC_L(X;Y)$', fontsize=12)
+    pylab.ylabel('bits')
+    pylab.suptitle('Convergence of objective/additivity/TC', fontsize=12)
     filename = prefix + '/text_files/convergence.pdf'
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
@@ -131,7 +131,7 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     # Construct non-tree graph
     alphas = [corex.mis > (0.1 * np.max(corex.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / corex.n_samples) * 3) for corex in corexes]  # TODO: is that permanent?
     # weights = [alphas[k] * np.abs(corex.ws) / np.max(np.abs(corex.ws)) for k, corex in enumerate(corexes)]
-    weights = [alphas[k] * corex.mis for k, corex in enumerate(corexes)]
+    weights = [alphas[k] * np.abs(corex.ws) for k, corex in enumerate(corexes)]
     node_weights = [corex.tcs for corex in corexes]
     g = make_graph(weights, node_weights, column_label, max_edges=max_edges)
 
