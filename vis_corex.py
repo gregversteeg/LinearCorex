@@ -19,17 +19,22 @@ def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output
         row_label = map(str, range(len(data)))
     # column_label += ["Y%d" % j for j in range(sieve.m)]
 
-    alpha = sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 3)  # TODO: is that permanent?
+    dual = (sieve.moments['X_i Y_j'] * sieve.moments['X_i Z_j']).T
+
+    alpha = dual > 0.05  # sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 3)  # TODO: is that permanent?
     print 'Groups in groups.txt'
     labels = sieve.transform(data)
     data = np.hstack([data, labels])
-    output_groups(sieve.tcs, alpha, sieve.mis, column_label, prefix=prefix)
+    output_groups(sieve.tcs, alpha, dual, column_label, prefix=prefix)
     output_labels(labels, row_label, prefix=prefix)
     if hasattr(sieve, "history"):
         plot_convergence(sieve.history, prefix=prefix)
 
     print 'Pairwise plots among high TC variables in "relationships"'
-    plot_top_relationships(data, alpha, sieve.mis, column_label, labels, prefix=prefix)
+    # plot_top_relationships(data, alpha, sieve.mis, column_label, labels, prefix=prefix)
+    # plot_top_relationships(data, alpha, np.abs(sieve.ws), column_label, labels, prefix=prefix)
+    #plot_top_relationships(data, alpha, dual, column_label, labels, prefix=prefix)
+    plot_top_relationships2(data, sieve, labels, column_label, prefix=prefix)
 
 def output_groups(tcs, alpha, mis, column_label, thresh=0, prefix=''):
     f = safe_open(prefix + '/text_files/groups.txt', 'w+')
@@ -81,7 +86,29 @@ def plot_top_relationships(data, alpha, mis, column_label, cont, topk=5, prefix=
                       outfile=prefix + '/relationships/group_num=' + str(j))
 
 
-def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha=0.5):
+def plot_top_relationships2(data, sieve, labels, column_label, topk=5, prefix=''):
+    dual = (sieve.moments['X_i Y_j'] * sieve.moments['X_i Z_j']).T
+    alpha = dual > 0.05
+    cy = sieve.moments['cy']
+    m, nv = alpha.shape
+    for j in range(m):
+        inds = np.where(alpha[j] > 0)[0]
+        inds = inds[np.argsort(- dual[j][inds])][:topk]
+        if len(inds) >= 2:
+            if dual[j, inds[0]] > 0.1:
+                factor = labels[:, j]
+                title = '$Y_{%d}$' % j
+            else:
+                k = np.argmax(np.abs(cy[j]))
+                if k == j:
+                    k = np.argsort(-np.abs(cy[j]))[1]
+                factor = sieve.moments['X_i Z_j'][inds[0], j] * labels[:, j] + sieve.moments['X_i Z_j'][inds[0], k] * labels[:, k]
+                title = '$Y_{%d} + Y_{%d}$' % (j, k)
+            plot_rels(data[:, inds], map(lambda q: column_label[q], inds), colors=factor,
+                      outfile=prefix + '/relationships/group_num=' + str(j), title=title)
+
+
+def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha=0.5, title=''):
     ns, n = data.shape
     if labels is None:
         labels = map(str, range(n))
@@ -104,10 +131,12 @@ def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha
     for ax in axs.flat[axs.size - 1:len(pairs) - 1:-1]:
         ax.scatter(data[:, 0], data[:, 1], marker='.')
 
+    fig.suptitle(title, fontsize=16)
     pylab.rcParams['font.size'] = 12  #6
     pylab.draw()
     #fig.set_tight_layout(True)
-    fig.tight_layout()
+    # fig.tight_layout()
+    pylab.subplots_adjust(top=0.95)
     for ax in axs.flat[axs.size - 1:len(pairs) - 1:-1]:
         ax.set_visible(False)
     filename = outfile + '.png'
@@ -128,8 +157,11 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     import textwrap
     column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=17, break_long_words=False)), column_label)
 
+    #dual = (corex.moments['X_i Y_j'] * corex.moments['X_i Z_j']).T
+    #alpha = dual > 0.04 # sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 3)  # TODO: is that permanent?
+
     # Construct non-tree graph
-    alphas = [corex.mis > (0.1 * np.max(corex.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / corex.n_samples) * 3) for corex in corexes]  # TODO: is that permanent?
+    alphas = [(corex.moments['X_i Y_j'] * corex.moments['X_i Z_j']).T > 0.04 for corex in corexes]  # TODO: is that permanent?
     # weights = [alphas[k] * np.abs(corex.ws) / np.max(np.abs(corex.ws)) for k, corex in enumerate(corexes)]
     weights = [alphas[k] * np.abs(corex.ws) for k, corex in enumerate(corexes)]
     node_weights = [corex.tcs for corex in corexes]
@@ -440,12 +472,12 @@ if __name__ == '__main__':
                 print "Layer ", l
             if l == 0:
                 t0 = time()
-                corexes = [lc.Corex(n_hidden=layer, verbose=2 * verbose, additive=options.additive, max_iter=options.max_iter).fit(X)]
+                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize='outliers', tol=1e-5, additive=options.additive, max_iter=options.max_iter).fit(X)]
                 print 'Time for first layer: %0.2f' % (time() - t0)
                 X_prev = X
             else:
                 X_prev = corexes[-1].transform(X_prev)
-                corexes.append(lc.Corex(n_hidden=layer, verbose=2 * verbose, additive=options.additive, max_iter=options.max_iter).fit(X_prev))
+                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, additive=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
             print 'TC at layer %d is: %0.3f' % (l, corex.tc)
