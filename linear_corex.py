@@ -205,7 +205,7 @@ class Corex(object):
         Q = m["X_i Y_j"].T / (m["Y_j^2"][:, np.newaxis] - m["X_i Y_j"].T ** 2)
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
         S = np.dot(H, self.ws)
-        eta = np.clip(1. / ((np.sum(np.abs(H), axis=0) * (1. + np.random.random(self.m)) * self.noise**2)), 0, 1)[:, np.newaxis]  # damping strong competitions
+        eta = np.clip(1. / ((np.sum(np.abs(H), axis=0) * 0.5 * (1 + np.random.random(self.m)) * self.noise**2)), 0, 1)[:, np.newaxis]  # damping strong competitions
         self.ws = (1. - eta) * self.ws + eta * (self.lam * Q + (1 - self.lam) * R - S)
         if self.verbose > 2:
             print 'eta', eta[:, 0]
