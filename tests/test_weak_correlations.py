@@ -10,7 +10,7 @@ import vis_corex as vc
 from scipy.stats import kendalltau
 
 
-verbose = True
+verbose = 2
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 seed = 1
 np.random.seed(seed)
@@ -77,7 +77,7 @@ print 'group sizes', map(lambda q: q.shape[1], data_groups)
 print 'Data size:', data.shape
 
 for loop_i in range(1):
-    out = lc.Corex(n_hidden=n_groups, seed=seed+loop_i, verbose=verbose, max_iter=1000, tol=1e-5).fit(data)
+    out = lc.Corex(n_hidden=n_groups, seed=seed+loop_i, verbose=verbose, max_iter=100000, tol=1e-5).fit(data)
     print 'Done, scoring:'
     scores = score(signal, out.transform(data))
     print 'TC:', out.tc

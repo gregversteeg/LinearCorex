@@ -88,7 +88,7 @@ def plot_top_relationships(data, alpha, mis, column_label, cont, topk=5, prefix=
 
 def plot_top_relationships2(data, sieve, labels, column_label, topk=5, prefix=''):
     dual = (sieve.moments['X_i Y_j'] * sieve.moments['X_i Z_j']).T
-    alpha = dual > 0.05
+    alpha = dual > 0.04
     cy = sieve.moments['cy']
     m, nv = alpha.shape
     for j in range(m):
@@ -122,6 +122,10 @@ def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha
         colors = (colors - np.min(colors)) / (np.max(colors) - np.min(colors))
 
     for ax, pair in zip(axs.flat, pairs):
+        diff_x = max(data[:, pair[0]]) - min(data[:, pair[0]])
+        diff_y = max(data[:, pair[1]]) - min(data[:, pair[1]])
+        ax.set_xlim([min(data[:, pair[0]]) - 0.05 * diff_x, max(data[:, pair[0]]) + 0.05 * diff_x])
+        ax.set_ylim([min(data[:, pair[1]]) - 0.05 * diff_y, max(data[:, pair[1]]) + 0.05 * diff_y])
         ax.scatter(data[:, pair[0]], data[:, pair[1]], c=colors, cmap=pylab.get_cmap("jet"),
                        marker='.', alpha=alpha, edgecolors='none', vmin=0, vmax=1)
 
@@ -490,5 +494,4 @@ if __name__ == '__main__':
     # This line outputs a hierarchical networks structure in a .dot file in the "graphs" folder
     # And it tries to compile the dot file into a pdf using the command line utility sfdp (part of graphviz)
 
-    vis_hierarchy(corexes, column_label=variable_names, max_edges=options.max_edges,
-                  prefix=options.output)
+    vis_hierarchy(corexes, column_label=variable_names, max_edges=options.max_edges, prefix=options.output)
