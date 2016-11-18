@@ -7,55 +7,82 @@ from itertools import combinations
 import numpy as np
 import pylab
 import networkx as nx
+import matplotlib.pyplot as plt
+
+
+# These are the "Tableau 20" colors as RGB.
+tableau20 = [(31, 119, 180), (255, 127, 14),
+             (44, 160, 44), (214, 39, 40), (255, 152, 150),
+             (148, 103, 189), (197, 176, 213), (140, 86, 75), (196, 156, 148),
+             (227, 119, 194), (247, 182, 210), (127, 127, 127), (199, 199, 199),
+             (188, 189, 34), (219, 219, 141), (23, 190, 207), (158, 218, 229)]
+# Scale the RGB values to the [0, 1] range, which is the format matplotlib accepts.
+for i in range(len(tableau20)):
+    r, g, b = tableau20[i]
+    tableau20[i] = (r / 255., g / 255., b / 255.)
 
 
 # Main visualization routines
-
-def vis_rep(sieve, data, row_label=None, column_label=None, prefix='corex_output', max_edges=200):
+def vis_rep(corex, data, row_label=None, column_label=None, prefix='corex_output', max_edges=200):
     """Various visualizations and summary statistics for a one layer representation"""
     if column_label is None:
         column_label = map(str, range(data.shape[1]))
     if row_label is None:
         row_label = map(str, range(len(data)))
-    # column_label += ["Y%d" % j for j in range(sieve.m)]
 
-    dual = (sieve.moments['X_i Y_j'] * sieve.moments['X_i Z_j']).T
+    dual = (corex.moments['X_i Y_j'] * corex.moments['X_i Z_j']).T
+    alpha = dual > 0.05
 
-    alpha = dual > 0.05  # sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 3)  # TODO: is that permanent?
-    print 'Groups in groups.txt'
-    labels = sieve.transform(data)
-    data = np.hstack([data, labels])
-    output_groups(sieve.tcs, alpha, dual, column_label, prefix=prefix)
+    print('Variable groups in summary/groups.txt')
+    output_groups(corex.ws, corex.moments, alpha, dual, column_label, prefix=prefix)
+
+    print("Latent factors for each sample in summary/labels.txt")
+    labels = corex.transform(data)
     output_labels(labels, row_label, prefix=prefix)
-    if hasattr(sieve, "history"):
-        plot_convergence(sieve.history, prefix=prefix)
+    
+    if hasattr(corex, "history"):
+        print("Convergence of objective in summary/convergence.pdf")
+        plot_convergence(corex.history, prefix=prefix)
 
     print 'Pairwise plots among high TC variables in "relationships"'
-    # plot_top_relationships(data, alpha, sieve.mis, column_label, labels, prefix=prefix)
-    # plot_top_relationships(data, alpha, np.abs(sieve.ws), column_label, labels, prefix=prefix)
-    #plot_top_relationships(data, alpha, dual, column_label, labels, prefix=prefix)
-    plot_top_relationships2(data, sieve, labels, column_label, prefix=prefix)
+    plot_top_relationships(data, corex, labels, column_label, prefix=prefix)
 
-def output_groups(tcs, alpha, mis, column_label, thresh=0, prefix=''):
-    f = safe_open(prefix + '/text_files/groups.txt', 'w+')
-    h = safe_open(prefix + '/text_files/summary.txt', 'w+')
+
+def output_groups(ws, moments, alpha, mis, column_label, thresh=0, prefix=''):
+    tc = moments["TC"]
+    tcs = moments["TCs"]
+    add = moments["additivity"]
+    dual = (moments['X_i Y_j'] * moments['X_i Z_j']).T
+    f = safe_open(prefix + '/summary/groups.txt', 'w+')
+    g = safe_open(prefix + '/summary/groups_no_overlaps.txt', 'w+')
+    h = safe_open(prefix + '/summary/summary.txt', 'w+')
     h.write('Group, TC\n')
     m, nv = mis.shape
+    f.write('variable, weight, MI\n')
+    g.write('variable, weight, MI\n')
     for j in range(m):
         f.write('Group num: %d, TC(X;Y_j): %0.6f\n' % (j, tcs[j]))
+        g.write('Group num: %d, TC(X;Y_j): %0.6f\n' % (j, tcs[j]))
         h.write('%d, %0.6f\n' % (j, tcs[j]))
 
         inds = np.where(alpha[j] > 0)[0]
-        inds = inds[np.argsort(-mis[j][inds])]
+        inds = inds[np.argsort(-np.abs(ws)[j][inds])]
         for ind in inds:
-            f.write(column_label[ind] + ', %0.6f\n' % mis[j][ind])
-    h.write('Total: %0.6f' % np.sum(tcs))
+            f.write(column_label[ind] + ', {:.3f}, {:.3f}\n'.format(ws[j][ind], mis[j][ind]))
+        inds = np.where(np.argmax(np.abs(ws), axis=0) == j)[0]
+        inds = inds[np.argsort(-np.abs(ws)[j][inds])]
+        for ind in inds:
+            g.write(column_label[ind] + ', {:.3f}, {:.3f}\n'.format(ws[j][ind], mis[j][ind]))
+    h.write('Total: {:f}\n'.format(np.sum(tcs)))
+    h.write('The total of individual TCs should approximately equal the objective: {:f}\n'.format(tc))
+    h.write('If not, this signals redundancy/synergy in the final solution (measured by additivity: {:f}'.format(add))
     f.close()
+    g.close()
     h.close()
 
 
 def output_labels(labels, row_label, prefix=''):
-    f = safe_open(prefix + '/text_files/cont_labels.txt', 'w+')
+    f = safe_open(prefix + '/summary/labels.txt', 'w+')
     ns, m = labels.shape
     for l in range(ns):
         f.write(row_label[l] + ',' + ','.join(map(str, labels[l, :])) + '\n')
@@ -63,33 +90,35 @@ def output_labels(labels, row_label, prefix=''):
 
 
 def plot_convergence(history, prefix=''):
+    plt.figure(figsize=(8, 5))
+    ax = plt.subplot(111)
 
-    pylab.plot(history)
-    pylab.xlabel('# iterations')
-    pylab.ylabel('bits')
-    pylab.suptitle('Convergence of objective/additivity/TC', fontsize=12)
-    filename = prefix + '/text_files/convergence.pdf'
+    ax.get_xaxis().tick_bottom()
+    ax.get_yaxis().tick_left()
+
+    plt.plot(history["TC"], '-', lw=2.5, color=tableau20[0])
+    x = len(history["TC"])
+    y = np.max(history["TC"])
+    plt.text(0.5 * x, 0.8 * y, "TC", fontsize=18, fontweight='bold', color=tableau20[0])
+
+    plt.plot(history["additivity"], '-', lw=2.5, color=tableau20[1])
+    plt.text(0.5 * x, 0.3 * y, "additivity", fontsize=18, fontweight='bold', color=tableau20[1])
+
+    plt.ylabel('TC', fontsize=12, fontweight='bold')
+    plt.xlabel('# Iterations', fontsize=12, fontweight='bold')
+    plt.suptitle('Convergence', fontsize=12)
+    filename = prefix + '/summary/convergence.pdf'
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
-    pylab.savefig(filename)
-    pylab.close('all')
+    plt.savefig(filename, bbox_inches="tight")
+    plt.close('all')
     return True
 
 
-def plot_top_relationships(data, alpha, mis, column_label, cont, topk=5, prefix=''):
-    m, nv = len(alpha), len(mis[0])
-    for j in range(m):
-        inds = np.where(alpha[j] > 0)[0]
-        inds = inds[np.argsort(- mis[j][inds])][:topk]
-        if len(inds) >= 2:
-            plot_rels(data[:, inds], map(lambda q: column_label[q], inds), colors=cont[:, j],
-                      outfile=prefix + '/relationships/group_num=' + str(j))
-
-
-def plot_top_relationships2(data, sieve, labels, column_label, topk=5, prefix=''):
-    dual = (sieve.moments['X_i Y_j'] * sieve.moments['X_i Z_j']).T
+def plot_top_relationships(data, corex, labels, column_label, topk=5, prefix=''):
+    dual = (corex.moments['X_i Y_j'] * corex.moments['X_i Z_j']).T
     alpha = dual > 0.04
-    cy = sieve.moments['cy']
+    cy = corex.moments['cy']
     m, nv = alpha.shape
     for j in range(m):
         inds = np.where(alpha[j] > 0)[0]
@@ -102,7 +131,7 @@ def plot_top_relationships2(data, sieve, labels, column_label, topk=5, prefix=''
                 k = np.argmax(np.abs(cy[j]))
                 if k == j:
                     k = np.argsort(-np.abs(cy[j]))[1]
-                factor = sieve.moments['X_i Z_j'][inds[0], j] * labels[:, j] + sieve.moments['X_i Z_j'][inds[0], k] * labels[:, k]
+                factor = corex.moments['X_i Z_j'][inds[0], j] * labels[:, j] + corex.moments['X_i Z_j'][inds[0], k] * labels[:, k]
                 title = '$Y_{%d} + Y_{%d}$' % (j, k)
             plot_rels(data[:, inds], map(lambda q: column_label[q], inds), colors=factor,
                       outfile=prefix + '/relationships/group_num=' + str(j), title=title)
@@ -352,9 +381,7 @@ def trim(g, max_parents=False, max_children=False):
     return g
 
 
-
 # Misc. utilities
-
 def safe_open(filename, mode):
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
@@ -404,7 +431,7 @@ if __name__ == '__main__':
                      help="Max number of iterations to use.")
     group.add_option("-a", "--additive",
                      action="store_false", dest="additive", default=True,
-                     help="By default, we attempt to find 'additive' solutions. -a will turn this off.")
+                     help="By default, we attempt to find non-synergistic solutions (better). -a will turn this off.")
     parser.add_option_group(group)
 
     group = OptionGroup(parser, "Output Options")
@@ -476,12 +503,12 @@ if __name__ == '__main__':
                 print "Layer ", l
             if l == 0:
                 t0 = time()
-                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize='outliers', tol=1e-5, additive=options.additive, max_iter=options.max_iter).fit(X)]
+                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize='outliers', tol=1e-5, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X)]
                 print 'Time for first layer: %0.2f' % (time() - t0)
                 X_prev = X
             else:
                 X_prev = corexes[-1].transform(X_prev)
-                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, additive=options.additive, max_iter=options.max_iter).fit(X_prev))
+                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
             print 'TC at layer %d is: %0.3f' % (l, corex.tc)

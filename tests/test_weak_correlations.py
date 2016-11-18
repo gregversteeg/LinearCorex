@@ -10,7 +10,7 @@ import vis_corex as vc
 from scipy.stats import kendalltau
 
 
-verbose = 2
+verbose = 1
 np.set_printoptions(precision=3, suppress=True, linewidth=200)
 seed = 1
 np.random.seed(seed)
@@ -80,7 +80,7 @@ for loop_i in range(1):
     out = lc.Corex(n_hidden=n_groups, seed=seed+loop_i, verbose=verbose, max_iter=100000, tol=1e-5).fit(data)
     print 'Done, scoring:'
     scores = score(signal, out.transform(data))
-    print 'TC:', out.tc
+    print 'TC:', out.moments["TC"]
     print 'Actual score:', scores
     print 'Number Ok, %d / %d' % (np.sum(scores > 0.5), len(scores))
     print 'total score, %0.3f' % np.sum(scores)
