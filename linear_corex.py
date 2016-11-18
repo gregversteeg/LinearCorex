@@ -186,20 +186,27 @@ class Corex(object):
         H = self.noise**2 * syi * syi.T * np.einsum('ji,ji,ki,ki,i->jk', m["rho"], m["invrho"], m["rho"], m["invrho"],
                                                     1. / (1 + m["Qi"] - m["Si"]**2))
         np.fill_diagonal(H, 0)
-        eigs = np.linalg.eigvalsh(H)
+        # eigs, eigv = np.linalg.eigh(H)
         # eta = np.clip(0.1 * (1. / np.max(np.abs(eigs)).clip(1e-6)), 0, 1)
-        eta = 1. / (1. + np.max(np.abs(eigs)))
+        eta = 0.5  # + np.random.random() * 1. / 6  # (2. / (np.max(np.abs(eigs)))).clip(1e-6, 1.)
+        # depolarize = 1 - 0.5 * (np.sum(np.abs(H), axis=1, keepdims=True) > 1)
+        # eta = min(0.6, 0.6 / np.max(np.abs(eigs)))
+        # eta = (2. / np.abs(eigs[-1] + eigs[0])).clip(1e-6, 1.)
         # jacobi = np.clip(2. / (2. - (np.max(eigs) + np.min(eigs))), 0.0, 1.)  # Jacobi over relaxation
         # eta = 0.5 * (jacobi + oldeta)
-        if self.verbose == 2:
-            print 'eigvals:', eigs, "eta: %0.5f" % eta
-            print H
+
         O1D1 = self.noise**2 * syi * m["invrho"]**2 * m["rho"] / (1 + m["Si"])
         O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
                ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
                - O1D1
         O2D2 = np.dot(H, self.ws)
-        return (1 - eta) * self.ws + eta * (O1D1 - O1D2 - O2D2)
+        wt = (O1D1 - O1D2 - O2D2)
+
+        if self.verbose == 2:
+            #print 'eigvals:', eigs, "eta: %0.5f" % eta
+            print H
+            # print depolarize.ravel()
+        return ((1 - eta) * self.ws + eta * wt)
 
     def _calculate_ws_syn(self, m):
         """Update weights, without the anti-synergy constraint.
