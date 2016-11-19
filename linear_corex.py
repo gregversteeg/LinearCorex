@@ -106,7 +106,7 @@ class Corex(object):
             else:
                 self.ws = self._calculate_ws_syn(self.moments)  # Older method that allows synergies
 
-            deltas = np.sqrt(((old_w - self.ws)**2).sum(axis=1) / (self.ws**2).sum(axis=1))  # rel. change per factor
+            deltas = np.sqrt(((old_w - self.ws)**2).sum(axis=1))  # abs. change per factor
             self.update_records(self.moments, deltas)  # Book-keeping
             if np.max(deltas) < self.tol:  # Check for convergence
                 if self.verbose:
@@ -187,17 +187,12 @@ class Corex(object):
         H = self.noise**2 * syi * syi.T * np.einsum('ji,ji,ki,ki,i->jk', m["rho"], m["invrho"], m["rho"], m["invrho"],
                                                     1. / (1 + m["Qi"] - m["Si"]**2))
         np.fill_diagonal(H, 0.)
-        eta = 0.5
 
         O1D1 = self.noise**2 * syi * m["invrho"]**2 * m["rho"] / (1 + m["Si"])
         O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
                ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
                - O1D1
 
-        # eigs, eigv = np.linalg.eigh(H)
-        # Alternate, use inverse
-        # np.fill_diagonal(H, 1.)
-        # return (1 - eta) * self.ws + eta * np.linalg.lstsq(H, O1D1 - O1D2)[0]
         O2D2 = np.dot(H, self.ws)
         w1 = (O1D1 - O1D2 - O2D2)
         delta = w1 - self.ws
