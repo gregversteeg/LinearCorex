@@ -163,6 +163,7 @@ class Corex(object):
             "Negative conditional variance suggests numerical instability in inversion of covariance matrix for Y."
         m["Y_j^2"] = np.diag(m["cy"]).copy()
         m["ry"] = m["cy"] / (np.sqrt(m["Y_j^2"]) * np.sqrt(m["Y_j^2"][:, np.newaxis]))
+        m["inv"] = np.linalg.inv(m["cy"])
         m["rho"] = (m["X_i Y_j"] / np.sqrt(m["Y_j^2"])).T
         m["invrho"] = 1. / (1. - m["rho"]**2)
         m["Qij"] = np.einsum('ji,ji,jk->ki', m["rho"], m["invrho"], m['ry'])
@@ -185,28 +186,29 @@ class Corex(object):
         syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
         H = self.noise**2 * syi * syi.T * np.einsum('ji,ji,ki,ki,i->jk', m["rho"], m["invrho"], m["rho"], m["invrho"],
                                                     1. / (1 + m["Qi"] - m["Si"]**2))
-        np.fill_diagonal(H, 0)
-        # eigs, eigv = np.linalg.eigh(H)
-        # eta = np.clip(0.1 * (1. / np.max(np.abs(eigs)).clip(1e-6)), 0, 1)
-        eta = 0.5  # + np.random.random() * 1. / 6  # (2. / (np.max(np.abs(eigs)))).clip(1e-6, 1.)
-        # depolarize = 1 - 0.5 * (np.sum(np.abs(H), axis=1, keepdims=True) > 1)
-        # eta = min(0.6, 0.6 / np.max(np.abs(eigs)))
-        # eta = (2. / np.abs(eigs[-1] + eigs[0])).clip(1e-6, 1.)
-        # jacobi = np.clip(2. / (2. - (np.max(eigs) + np.min(eigs))), 0.0, 1.)  # Jacobi over relaxation
-        # eta = 0.5 * (jacobi + oldeta)
+        np.fill_diagonal(H, 0.)
+        eta = 0.5
 
         O1D1 = self.noise**2 * syi * m["invrho"]**2 * m["rho"] / (1 + m["Si"])
         O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
                ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
                - O1D1
-        O2D2 = np.dot(H, self.ws)
-        wt = (O1D1 - O1D2 - O2D2)
 
+        # eigs, eigv = np.linalg.eigh(H)
+        # Alternate, use inverse
+        # np.fill_diagonal(H, 1.)
+        # return (1 - eta) * self.ws + eta * np.linalg.lstsq(H, O1D1 - O1D2)[0]
+        O2D2 = np.dot(H, self.ws)
+        w1 = (O1D1 - O1D2 - O2D2)
+        delta = w1 - self.ws
+        eta = - np.einsum('ji,ji', delta, self.ws) / np.einsum('ji,ji', delta, delta)
         if self.verbose == 2:
-            #print 'eigvals:', eigs, "eta: %0.5f" % eta
+            # print 'eigvals:', eigs
             print H
-            # print depolarize.ravel()
-        return ((1 - eta) * self.ws + eta * wt)
+            print 'eta', eta
+        if eta <= 0 or eta > 1:
+            eta = 2. / 3.
+        return ((1 - eta) * self.ws + eta * w1)
 
     def _calculate_ws_syn(self, m):
         """Update weights, without the anti-synergy constraint.
@@ -215,7 +217,8 @@ class Corex(object):
         np.fill_diagonal(H, 0)
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
         S = np.dot(H, self.ws)
-        eta = np.clip(1. / ((np.sum(np.abs(H), axis=0) * 0.5 * (1 + np.random.random(self.m)) * self.noise**2)), 0, 1)[:, np.newaxis]  # damping strong competitions
+        # eta = np.clip(1. / ((np.sum(np.abs(H), axis=0) * 0.5 * (1 + np.random.random(self.m)) * self.noise**2)), 0, 1)[:, np.newaxis]  # damping strong competitions
+        eta = 1. / 2.
         return (1. - eta) * self.ws + eta * (R - S)
 
     def transform(self, x, details=False):
@@ -283,3 +286,13 @@ def g_inv(x, t=4):
     xp = np.clip(x, -t, t)
     diff = np.arctanh(np.clip(x - xp, -1 + 1e-10, 1 - 1e-10))
     return xp + diff
+
+
+def _sym_decorrelation(W):
+    """ Symmetric decorrelation
+    i.e. W <- (W * W.T) ^{-1/2} * W
+    """
+    s, u = linalg.eigh(np.dot(W, W.T))
+    # u (resp. s) contains the eigenvectors (resp. square roots of
+    # the eigenvalues) of W * W.T
+    return np.dot(np.dot(u * (1. / np.sqrt(s)), u.T), W)
