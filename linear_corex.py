@@ -60,12 +60,13 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation [tbd]" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=10000, tol=0.0001,
+    def __init__(self, n_hidden=2, max_iter=10000, tol=0.0001, eta=0.1,
                  eliminate_synergy=True, gaussianize='standard',
                  verbose=False, noise=1., seed=None):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
         self.tol = tol  # Threshold for convergence
+        self.eta = eta  # Number in (0,1] that controls step size in fixed point iteration.
 
         self.eliminate_synergy = eliminate_synergy  # Whether or not to constrain to additive solutions
         self.gaussianize = gaussianize  # Preprocess data: 'standard' scales to zero mean and unit variance
@@ -202,7 +203,7 @@ class Corex(object):
             print H
             print 'eta', eta
         if eta <= 0 or eta > 1:
-            eta = 2. / 3.
+            eta = self.eta  # 2. / 3.  # 2/3 appears to be special. Much worse for half, 3/4, 1/3...
         return ((1 - eta) * self.ws + eta * w1)
 
     def _calculate_ws_syn(self, m):
@@ -213,7 +214,7 @@ class Corex(object):
         R = m["X_i Z_j"].T / m["X_i^2 | Y"]
         S = np.dot(H, self.ws)
         # eta = np.clip(1. / ((np.sum(np.abs(H), axis=0) * 0.5 * (1 + np.random.random(self.m)) * self.noise**2)), 0, 1)[:, np.newaxis]  # damping strong competitions
-        eta = 1. / 2.
+        eta = 0.5
         return (1. - eta) * self.ws + eta * (R - S)
 
     def transform(self, x, details=False):
@@ -281,13 +282,3 @@ def g_inv(x, t=4):
     xp = np.clip(x, -t, t)
     diff = np.arctanh(np.clip(x - xp, -1 + 1e-10, 1 - 1e-10))
     return xp + diff
-
-
-def _sym_decorrelation(W):
-    """ Symmetric decorrelation
-    i.e. W <- (W * W.T) ^{-1/2} * W
-    """
-    s, u = linalg.eigh(np.dot(W, W.T))
-    # u (resp. s) contains the eigenvectors (resp. square roots of
-    # the eigenvalues) of W * W.T
-    return np.dot(np.dot(u * (1. / np.sqrt(s)), u.T), W)

@@ -420,6 +420,9 @@ if __name__ == '__main__':
     group.add_option("-d", "--delimiter",
                      action="store", dest="delimiter", type="string", default=",",
                      help="Separator between entries in the data, default is ','.")
+    group.add_option("-g", "--gaussianize",
+                     action="store", dest="gaussianize", type="string", default="standard",
+                     help="Try gaussianize='outliers' if there are long tails.")
     parser.add_option_group(group)
 
     group = OptionGroup(parser, "CorEx Options")
@@ -427,7 +430,7 @@ if __name__ == '__main__':
                      help="Specify number of units at each layer: 5,3,1 has "
                           "5 units at layer 1, 3 at layer 2, and 1 at layer 3")
     group.add_option("-w", "--max_iter",
-                     action="store", dest="max_iter", type="int", default=1000,
+                     action="store", dest="max_iter", type="int", default=10000,
                      help="Max number of iterations to use.")
     group.add_option("-a", "--additive",
                      action="store_false", dest="additive", default=True,
@@ -503,12 +506,12 @@ if __name__ == '__main__':
                 print "Layer ", l
             if l == 0:
                 t0 = time()
-                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize='outliers', tol=1e-5, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X)]
+                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X)]
                 print 'Time for first layer: %0.2f' % (time() - t0)
                 X_prev = X
             else:
                 X_prev = corexes[-1].transform(X_prev)
-                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X_prev))
+                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
             print 'TC at layer %d is: %0.3f' % (l, corex.tc)

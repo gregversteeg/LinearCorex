@@ -1,7 +1,8 @@
 # Test the ability to recover clusters of weakly correlated variables
 # The weak clusters (relatively low TC) are often noisy.
-# It seems that Bayesian smoothing has a big effect on this noise.
-# Here we test various
+# The setup is designed to mimic some of the problems we see in gene expression datasets.
+# I've been using this exact setup for a while, as it tests the boundaries of methods like CorEx/sieve
+# Linear Corex with synergies eliminated is the first to perfectly recover all 30 groups.
 import sys
 sys.path.append('..')
 import linear_corex as lc
