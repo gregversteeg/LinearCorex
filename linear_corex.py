@@ -200,10 +200,12 @@ class Corex(object):
         eta = - np.einsum('ji,ji', delta, self.ws) / np.einsum('ji,ji', delta, delta)
         if self.verbose == 2:
             # print 'eigvals:', eigs
-            print H
+            # print H
             print 'eta', eta
         if eta <= 0 or eta > 1:
-            eta = self.eta  # 2. / 3.  # 2/3 appears to be special. Much worse for half, 3/4, 1/3...
+            eta = self.eta
+        else:
+            eta = eta.clip(1e-2)
         return ((1 - eta) * self.ws + eta * w1)
 
     def _calculate_ws_syn(self, m):
