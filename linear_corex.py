@@ -10,6 +10,12 @@ Greg Ver Steeg (gregv@isi.edu), 2016.
 import numpy as np
 from scipy.stats import norm, rankdata
 import gc
+try:
+    import cudamat as cm
+    GPU_SUPPORT = True
+except ImportError:
+    print("Install CUDA and cudamat (for python) to enable GPU speedups.")
+    GPU_SUPPORT = False
 
 
 class Corex(object):
@@ -60,16 +66,16 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation [tbd]" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=10000, tol=0.0001, eta=0.1,
-                 eliminate_synergy=True, gaussianize='standard',
+    def __init__(self, n_hidden=2, max_iter=10000, tol=0.0001,
+                 eliminate_synergy=True, gaussianize='standard', gpu=GPU_SUPPORT,
                  verbose=False, noise=1., seed=None):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
         self.tol = tol  # Threshold for convergence
-        self.eta = eta  # Number in (0,1] that controls step size in fixed point iteration.
 
         self.eliminate_synergy = eliminate_synergy  # Whether or not to constrain to additive solutions
         self.gaussianize = gaussianize  # Preprocess data: 'standard' scales to zero mean and unit variance
+        self.gpu = False  # gpu  # Enable GPU support. TODO: re-enable after development
 
         self.noise = noise  # Can be arbitrary, but sets the scale of Y
         np.random.seed(seed)  # Set seed for deterministic results
@@ -84,6 +90,10 @@ class Corex(object):
         self.moments = {}  # Dictionary of moments
         self.theta = None  # Parameters for preprocessing each variable
         self.history = {}  # Keep track of values for each iteration
+        self.last_update = 0  # Used for momentum methods
+
+        if self.gpu:
+            cm.cublas_init()
 
     def fit_transform(self, x):
         self.fit(x)
@@ -93,17 +103,23 @@ class Corex(object):
         x = self.preprocess(x, fit=True)  # Fit a transform for each marginal
         self.n_samples, self.nv = x.shape  # Number of samples, variables in input data
         if self.ws.size == 0:  # Randomly initialize weights if not already set
-            self.ws = np.random.randn(self.m, self.nv) / np.sqrt(self.nv) * self.noise
+            self.ws = np.random.randn(self.m, self.nv) * self.noise / np.sqrt(self.nv)
 
         for i_loop in range(self.max_iter):
             old_w = self.ws.copy()
 
             # Step 1: Update moments based on w and samples, x.
-            self.moments = self._calculate_moments(x)
+            self.moments = self._calculate_moments(x, quick=self.eliminate_synergy and not self.verbose)
 
             # Step 2: Update the weights
             if self.eliminate_synergy:
-                self.ws = self._calculate_ws(self.moments)
+                self.ws = self._calculate_ws_damp(self.moments)
+            elif False:  # The "fine tuning" strategy
+                if i_loop < 100:
+                    self.ws = self._calculate_ws_simple(self.moments)
+                    self.ws = self._ortho(self.ws, x)
+                else:
+                    self.ws = self._calculate_ws(self.moments)
             else:
                 self.ws = self._calculate_ws_syn(self.moments)  # Older method that allows synergies
 
@@ -118,6 +134,7 @@ class Corex(object):
                 print("Warning: Convergence not achieved in {:d} iterations. "
                       "Final delta: {:f}".format(self.max_iter, deltas.sum()))
 
+        self.moments = self._calculate_moments(x)  # Update moments with details
         order = np.argsort(-self.moments["TCs"])  # Largest TC components first.
         self.ws = self.ws[order]
         self.moments = self._calculate_moments(x)  # Update moments based on sorted weights.
@@ -127,10 +144,10 @@ class Corex(object):
         """Print and store some statistics about each iteration."""
         gc.disable()  # There's a bug that slows when appending, fixed by temporarily disabling garbage collections
         self.history["TC"] = self.history.get("TC", []) + [moments["TC"]]
-        self.history["additivity"] = self.history.get("additivity", []) + [moments["additivity"]]
         if self.verbose > 1:
             print("TC={:.3f}\tadd={:.3f}\tdelta={:.6f}".format(moments["TC"], moments["additivity"], deltas.sum()))
         if self.verbose:
+            self.history["additivity"] = self.history.get("additivity", []) + [moments["additivity"]]
             self.history["deltas"] = self.history.get("deltas", []) + [deltas]
             self.history["TCs"] = self.history.get("TCs", []) + [moments["TCs"]]
         gc.enable()
@@ -151,62 +168,267 @@ class Corex(object):
     def mis(self):
         return self.moments["MI"]
 
-    def _calculate_moments(self, x):
+    def _calculate_moments(self, x, quick=False):
         """Calculate moments based on the weights and samples. We also calculate and save MI, TC, additivity, and
         the value of the objective. Note it is assumed that <X_i^2> = 1! """
         m = {}  # Dictionary of moments
-        y = x.dot(self.ws.T)  # + self.noise * np.random.randn(len(x), self.m)  # Noise is included analytically
-        m["X_i Y_j"] = x.T.dot(y) / len(y)  # nv by m,  <X_i Y_j>
+        if self.gpu:
+            ws = cm.CUDAMatrix(self.ws)
+        else:
+            ws = self.ws
+        y = x.dot(ws.T)  # + self.noise * np.random.randn(len(x), self.m)  # Noise is included analytically
+        if self.gpu:
+            tmp_dot = cm.dot(x.T, y)
+            m["X_i Y_j"] = tmp_dot.asarray() / self.n_samples  # nv by m,  <X_i Y_j>  # TODO: GPU
+        else:
+            m["X_i Y_j"] = x.T.dot(y) / self.n_samples
         m["cy"] = self.ws.dot(m["X_i Y_j"]) + self.noise ** 2 * np.eye(self.m)  # cov(y.T), m by m
-        m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
-        m["X_i^2 | Y"] = (1. - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))
-        assert np.all(m["X_i^2 | Y"] > 0), \
-            "Negative conditional variance suggests numerical instability in inversion of covariance matrix for Y."
         m["Y_j^2"] = np.diag(m["cy"]).copy()
         m["ry"] = m["cy"] / (np.sqrt(m["Y_j^2"]) * np.sqrt(m["Y_j^2"][:, np.newaxis]))
-        m["inv"] = np.linalg.inv(m["cy"])
         m["rho"] = (m["X_i Y_j"] / np.sqrt(m["Y_j^2"])).T
         m["invrho"] = 1. / (1. - m["rho"]**2)
-        m["Qij"] = np.einsum('ji,ji,jk->ki', m["rho"], m["invrho"], m['ry'])
-        m["Qi"] = np.einsum('ki,ki,ki->i', m["rho"], m["invrho"], m["Qij"])
-        m["Si"] = np.sum(m["rho"]**2 * m["invrho"], axis=0)
-        m["MI"] = self.calculate_mi(m)
-        mi_yj_x = 0.5 * np.log(m["Y_j^2"]) - 0.5 * np.log(self.noise ** 2)
-        mi_xi_y = - 0.5 * np.log(m["X_i^2 | Y"])
-        m["TCs"] = m["MI"].sum(axis=1) - mi_yj_x
-        m["additivity"] = (m["MI"].sum(axis=0) - mi_xi_y).sum()
+        m["rhoinvrho"] = m["rho"] * m["invrho"]
+        m["Qij"] = np.dot(m['ry'], m["rhoinvrho"])
+        m["Qi"] = np.einsum('ki,ki->i', m["rhoinvrho"], m["Qij"])
+        m["Si"] = np.sum(m["rho"] * m["rhoinvrho"], axis=0)
+
         # This is the objective, a lower bound for TC
         m["TC"] = 0.5 * np.sum(np.log(1 + m["Si"])) \
                          - 0.5 * np.sum(np.log(1 - m["Si"] + m["Qi"] / (1 + m["Si"]))) \
                          - 0.5 * np.sum(np.log(m["Y_j^2"]) - np.log(self.noise**2))
+        m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
+        m["X_i^2 | Y"] = (1. - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))  # conditional variance
+        if not quick:
+            m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
+            m["X_i^2 | Y"] = (1. - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))
+            assert np.all(m["X_i^2 | Y"] > 0), \
+                "Negative conditional variance suggests numerical instability in inversion of covariance matrix for Y."
+
+            m["MI"] = self.calculate_mi(m)
+            mi_yj_x = 0.5 * np.log(m["Y_j^2"]) - 0.5 * np.log(self.noise ** 2)
+            mi_xi_y = - 0.5 * np.log(m["X_i^2 | Y"])
+            m["TCs"] = m["MI"].sum(axis=1) - mi_yj_x
+            m["additivity"] = (m["MI"].sum(axis=0) - mi_xi_y).sum()
         return m
 
-    def _calculate_ws(self, m):
-        """Update weights, and also the lagrange multipliers.
-        m is the dictionary of moments."""
+    def _ortho(self, ws, x, eta=0.5):
+        if self.gpu:
+            ws2 = cm.CUDAMatrix(ws)
+        else:
+            ws2 = ws
+        y = x.dot(ws2.T)
+        if self.gpu:
+            tmp_dot = cm.dot(x.T, y)
+            xi_yj = tmp_dot.asarray() / self.n_samples  # nv by m,  <X_i Y_j>  # TODO: GPU
+        else:
+            xi_yj = x.T.dot(y) / self.n_samples
+        H = ws.dot(xi_yj)
+        s = np.sqrt(np.diag(H))[:, np.newaxis]
+        eig, eigv = np.linalg.eigh(H + self.noise**2 * 1e-5 * np.eye(self.m))  # Regularization to avoid singular eigv
+        # H = np.dot(eigv * eig[np.newaxis,:], eigv.T)  # By definition
+        P = np.dot(eigv / np.sqrt(eig), eigv.T)
+        return (1 - eta) * ws + eta * s * np.dot(P, ws)
+
+    def _calculate_ws_simple(self, m):
+        """Update weights with no synergy, but constrain to orthogonal solutions."""
         syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
-        H = self.noise**2 * syi * syi.T * np.einsum('ji,ji,ki,ki,i->jk', m["rho"], m["invrho"], m["rho"], m["invrho"],
-                                                    1. / (1 + m["Qi"] - m["Si"]**2))
+        return self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
+
+    def _calculate_ws(self, m):
+        """Update weights, m is the dictionary of moments."""
+        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
+        H = self.noise**2 * syi * syi.T * np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
         np.fill_diagonal(H, 0.)
 
-        O1D1 = self.noise**2 * syi * m["invrho"]**2 * m["rho"] / (1 + m["Si"])
+        O1D1 = self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
         O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
                ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
                - O1D1
-
         O2D2 = np.dot(H, self.ws)
+
         w1 = (O1D1 - O1D2 - O2D2)
         delta = w1 - self.ws
-        eta = - np.einsum('ji,ji', delta, self.ws) / np.einsum('ji,ji', delta, delta)
+
         if self.verbose == 2:
-            # print 'eigvals:', eigs
-            # print H
-            print 'eta', eta
-        if eta <= 0 or eta > 1:
-            eta = self.eta
-        else:
-            eta = eta.clip(1e-2)
-        return ((1 - eta) * self.ws + eta * w1)
+            print(H)
+        eta = 1. / 3.
+        return self.ws + eta * delta
+
+    def _calculate_ws_damp(self, m, eta=0.5):
+        """Update weights, m is the dictionary of moments."""
+        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
+        H = self.noise**2 * syi * syi.T * np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
+        np.fill_diagonal(H, 0.)
+
+        O1D1 = self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
+        O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
+               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
+               - O1D1
+        O2D2 = np.dot(H, self.ws)
+        grad = self.ws - (O1D1 - O1D2 - O2D2)
+
+        # J's are (diagonal Jacobian) derivatives wrt O1D1, O1D2, O2D2 respectively
+        J1 = self.noise**2 * syi**2 / (1 + m["Si"]) * m["invrho"]**2 \
+            * (1 + 2. * m["rho"]**2 * (1. - m["invrho"] / (1 + m["Si"])))
+
+        U = m["Qij"] - m["rho"] * m["Si"]
+        V = m["rho"] * m["Qij"] - m["Si"]
+        D = (1 - m["Si"]**2 + m["Qi"])
+        A = self.noise**2 * syi**2 * m["invrho"]**2 / D * (
+             1 + V + 3 * m["rho"] * U - m["rho"]**2 - 2 * U * (U + m["rho"] * V) / D * m["invrho"]
+        )
+        J2 = -J1 + A
+
+        Gji = self.ws * m["rhoinvrho"] * syi
+        Gi = np.sum(Gji, axis=0) - Gji
+        B = Gi * self.noise**2 * syi**2 / (1 - m["Si"]**2 + m["Qi"]) * m['invrho'] * (
+            1 + m["rho"]**2 + 2 * m['rhoinvrho'] * (m["Qij"] - m["Si"] * m["rho"]) / (1 - m["Si"]**2 + m["Qi"])
+        )
+        J3 = - syi * m["rho"] * O2D2 + B
+
+        if self.verbose == 2:
+            #print 'DIRECTION:', np.sum(self.ws * w1, axis=1) / np.sqrt(np.sum(self.ws * self.ws, axis=1) * np.sum(w1 * w1, axis=1))
+            #stats(np.sum(self.ws**2, axis=1), '\tmag')
+            #stats(m["X_i^2 | Y"], "\tX_i^2 | Y")
+            print('\t' +str(['J min: {:.3f}, max: {:.3f}'.format(np.min(q), np.max(q)) for q in [1-J1+J2+J3, -J1,J2,J3]]))
+
+        G = np.linalg.inv(H + np.eye(self.m))
+        update = np.dot(G, grad)
+        g = - J1 + J2 + J3
+        return self.ws - eta * (update - np.dot(G, g * update))
+
+    def _calculate_ws_mom(self, m):
+        """Update weights, m is the dictionary of moments."""
+        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
+        H = self.noise**2 * syi * syi.T * np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
+        np.fill_diagonal(H, 0.)
+
+        O1D1 = self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
+        O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
+               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
+               - O1D1
+        O2D2 = np.dot(H, self.ws)
+
+        w1 = (O1D1 - O1D2 - O2D2)
+        if self.verbose == 2:
+            print(H)
+        this_update = 0.5 * self.last_update + 0.5 * w1
+        self.last_update = this_update
+        return this_update
+
+    def _calculate_ws_newton(self, m):
+        """Update weights, m is the dictionary of moments."""
+        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
+        H = self.noise**2 * syi * syi.T * np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
+        np.fill_diagonal(H, 0.)
+
+        O1D1 = self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
+        O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
+               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
+               - O1D1
+        O2D2 = np.dot(H, self.ws)
+
+        w1 = (-O1D1 + O1D2 + O2D2 + self.ws)
+        Z = (1 + 3 * m["rho"]**2) * m["invrho"] - 2 * m["rho"]**2 * m["invrho"]**2 / (1 + m["Si"])
+        J = self.noise**2 / m["Y_j^2"][:, np.newaxis] / (1 + m["Si"]) * m["invrho"]**2 \
+            * (self.ws * (m["X_i Y_j"] / m["Y_j^2"]).T * (1 - Z) + Z)
+
+        if self.verbose == 2:
+            print(J)
+            print(H)
+
+        eig, eigv = np.linalg.eigh(H + np.eye(self.m))
+        Hi = np.dot(eigv / eig, eigv.T)
+
+        #return self.ws - np.dot(Hi, w1)
+        return self.ws - 0.5 * (np.dot(Hi, w1) - np.dot(Hi, np.dot(Hi, w1) * J))
+
+        return self.ws - 0.5 * w1 / (1. + J)
+        # return self.ws - w1  # nothing
+        # return self.ws - np.dot(H, w1)  # H
+        # return self.ws - 0.5 * (w1 - np.dot(H, w1 / J)) / J  # D inv (I - H D inv)
+
+    def _calculate_ws_woodbury(self, m):
+        """Update weights, m is the dictionary of moments."""
+        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
+        H = self.noise**2 * syi * syi.T * np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
+        np.fill_diagonal(H, 0.)
+
+        O1D1 = self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
+        O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
+               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
+               - O1D1
+        O2D2 = np.dot(H, self.ws)
+
+        w1 = (O1D1 - O1D2 - O2D2)
+        #H_inv = np.linalg.inv(H + 1e-10 * np.eye(self.m))
+        #G = np.linalg.inv(H_inv + np.eye(self.m))
+
+        eta = 0.5
+        #print np.sum(self.ws**2, axis=1)
+        w2 = np.linalg.lstsq(H + np.eye(self.m), O1D1 - O1D2)[0]
+        eta2 = np.clip(1. / np.max(np.abs(np.linalg.eigvalsh(H))) / 2., 0., 1.)
+        return (1 - eta) * self.ws + eta * (eta2 * w1 + (1 - eta2) * w2)
+
+        if self.verbose == 2:
+            print(J)
+            print(H)
+
+    def _calculate_ws_minmag(self, m):
+        """Update weights, m is the dictionary of moments."""
+        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
+        H = self.noise**2 * syi * syi.T * np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
+        np.fill_diagonal(H, 0.)
+        O1D1 = self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
+        O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
+               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
+               - O1D1
+        O2D2 = np.dot(H, self.ws)
+        w1 = (O1D1 - O1D2 - O2D2)
+
+        w0 = np.linalg.lstsq(H + np.eye(self.m), O1D1 - O1D2)[0]
+        delta = w0 - w1
+        eta = np.clip(np.sum(w0 * delta) / np.sum(delta**2).clip(1e-5), 0., 1.)
+        if self.verbose == 2:
+            print np.sum(self.ws**2, axis=1)
+            print np.sum(w1**2), np.sum(w0**2), np.sum(w1 * w0), eta
+        return 0.5 * self.ws + 0.5 * (eta * w1 + (1 - eta) * w0)
+
+        if self.verbose == 2:
+            print(J)
+            print(H)
+
+    def _calculate_ws_cg(self, m, i_loop):
+        """Update weights, m is the dictionary of moments."""
+        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
+        H = self.noise**2 * syi * syi.T * np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
+        np.fill_diagonal(H, 1.)
+
+        O1D1 = self.noise**2 * syi * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
+        O1D2 = self.noise**2 * syi * m["invrho"]**2 * \
+               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"]) \
+               - O1D1
+        O2D2 = np.dot(H, self.ws)
+        Z = (1 + 3 * m["rho"]**2) * m["invrho"] - 2 * m["rho"]**2 * m["invrho"]**2 / (1 + m["Si"])
+        J = self.noise**2 / m["Y_j^2"][:, np.newaxis] / (1 + m["Si"]) * m["invrho"]**2 \
+            * (self.ws * (m["X_i Y_j"] / m["Y_j^2"]).T * (1 - Z) + Z)
+
+        grad = - (- O1D1 + O1D2 + O2D2)
+        if not self.last_update:
+            self.last_update = (grad, grad)
+        last_grad, last_s = self.last_update
+
+        beta = max(0, np.sum(grad * (grad - last_grad)) / np.sum(last_grad**2))
+        # beta = np.sum(grad * grad) / np.sum(last_grad**2)
+        if i_loop % 1 == 0:
+            beta = 0
+        s = grad + beta * last_s
+        self.last_update = (grad, s)
+        alpha = 0.5 * np.sum(grad * s) / np.sum(s * (np.dot(H, s)))
+        # print alpha, beta
+        # return self.ws + alpha * s
+
+        return self.ws + 0.5 * np.einsum('ji,ji->i', grad, s) * s / np.einsum('ji,jk,ki->i', s, H, s)
 
     def _calculate_ws_syn(self, m):
         """Update weights, without the anti-synergy constraint.
@@ -245,19 +467,18 @@ class Corex(object):
             x = ((x - self.theta[0]) / self.theta[1])
             if np.max(np.abs(x)) > 6 and self.verbose:
                 print("Warning: outliers more than 6 stds away from mean. Consider using gaussianize='outliers'")
-            return x
         elif self.gaussianize == 'outliers':
             if fit:
                 mean = np.mean(x, axis=0)
                 std = np.std(x, axis=0, ddof=1).clip(1e-10)
                 self.theta = (mean, std)
             x = g((x - self.theta[0]) / self.theta[1])  # g truncates long tails
-            return x
         elif self.gaussianize == 'empirical':
             print("Warning: correct inversion/transform of empirical gauss transform not implemented.")
-            return np.array([norm.ppf((rankdata(x_i) - 0.5) / len(x_i)) for x_i in x.T]).T
-        else:
-            return x
+            x = np.array([norm.ppf((rankdata(x_i) - 0.5) / len(x_i)) for x_i in x.T]).T
+        if self.gpu and fit:  # Don't return GPU matrices when only transforming
+            x = cm.CUDAMatrix(x)
+        return x
 
     def invert(self, x):
         """Invert the preprocessing step to get x's in the original space."""
@@ -284,3 +505,14 @@ def g_inv(x, t=4):
     xp = np.clip(x, -t, t)
     diff = np.arctanh(np.clip(x - xp, -1 + 1e-10, 1 - 1e-10))
     return xp + diff
+
+
+def stats(z, name=''):
+    print('{}, range: [{:.3f}, {:.3f}], med: {:.3f}'.format(name, np.min(z), np.max(z), np.median(z)))
+
+
+def miller_inverse(A, B):
+    """ Use Miller's method in "On Sums of Inverses of Matrices" to invert (A+B) where A is a diagonal matrix and
+    B is a low rank correction. Note that A and B are block diagonally indexed and B is replicated across blocks."""
+
+    return

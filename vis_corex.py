@@ -101,8 +101,9 @@ def plot_convergence(history, prefix=''):
     y = np.max(history["TC"])
     plt.text(0.5 * x, 0.8 * y, "TC", fontsize=18, fontweight='bold', color=tableau20[0])
 
-    plt.plot(history["additivity"], '-', lw=2.5, color=tableau20[1])
-    plt.text(0.5 * x, 0.3 * y, "additivity", fontsize=18, fontweight='bold', color=tableau20[1])
+    if history.has_key("additivity"):
+        plt.plot(history["additivity"], '-', lw=2.5, color=tableau20[1])
+        plt.text(0.5 * x, 0.3 * y, "additivity", fontsize=18, fontweight='bold', color=tableau20[1])
 
     plt.ylabel('TC', fontsize=12, fontweight='bold')
     plt.xlabel('# Iterations', fontsize=12, fontweight='bold')
