@@ -103,10 +103,9 @@ class Corex(object):
         x = self.preprocess(x, fit=True)  # Fit a transform for each marginal
         self.n_samples, self.nv = x.shape  # Number of samples, variables in input data
         if self.ws.size == 0:  # Randomly initialize weights if not already set
-            self.ws = self._ortho(np.random.randn(self.m, self.nv) * self.noise / np.sqrt(self.nv), x)
+            self.ws = np.random.randn(self.m, self.nv) * self.noise / np.sqrt(self.nv)
 
         # Backtrack to set the step size, eta.
-        backtrack = False
         eta = 0.5
         last_tc = -np.inf
 
@@ -209,8 +208,6 @@ class Corex(object):
         m["TC"] = 0.5 * np.sum(np.log(1 + m["Si"])) \
                          - 0.5 * np.sum(np.log(1 - m["Si"] + m["Qi"] / (1 + m["Si"]))) \
                          - 0.5 * np.sum(np.log(m["Y_j^2"]) - np.log(self.noise**2))
-        m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
-        m["X_i^2 | Y"] = (1. - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))  # conditional variance
         if not quick:
             m["X_i Z_j"] = np.linalg.solve(m["cy"], m["X_i Y_j"].T).T
             m["X_i^2 | Y"] = (1. - np.einsum('ij,ij->i', m["X_i Z_j"], m["X_i Y_j"]))
@@ -274,9 +271,8 @@ class Corex(object):
 
         Gji = self.ws * m["rhoinvrho"] * syi
         Gi = np.sum(Gji, axis=0) - Gji
-        B = Gi * self.noise**2 * syi**2 / (1 - m["Si"]**2 + m["Qi"]) * m['invrho'] * (
-            1 + m["rho"]**2 + 2 * m['rhoinvrho'] * (m["Qij"] - m["Si"] * m["rho"]) / (1 - m["Si"]**2 + m["Qi"])
-        )
+        B = Gi * self.noise**2 * syi**2 * m['invrho'] / (1 - m["Si"]**2 + m["Qi"]) * (1 + m['rho']**2
+            - m['rhoinvrho'] * 2 / (1 - m["Si"]**2 + m["Qi"]) * (m["Qij"] - m["Si"] * m["rho"]))
         J3 = - syi * m["rho"] * O2D2 + B
 
         G = np.linalg.inv(H + np.eye(self.m))
