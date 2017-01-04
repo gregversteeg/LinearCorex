@@ -27,6 +27,8 @@ def vis_rep(corex, data, row_label=None, column_label=None, prefix='corex_output
     """Various visualizations and summary statistics for a one layer representation"""
     if column_label is None:
         column_label = map(str, range(data.shape[1]))
+    else:
+        column_label = [extract_color(label)[0] for label in column_label]
     if row_label is None:
         row_label = map(str, range(len(data)))
 
@@ -89,7 +91,7 @@ def output_labels(labels, row_label, prefix=''):
     f.close()
 
 
-def plot_convergence(history, prefix=''):
+def plot_convergence(history, prefix='', prefix2=''):
     plt.figure(figsize=(8, 5))
     ax = plt.subplot(111)
 
@@ -108,7 +110,7 @@ def plot_convergence(history, prefix=''):
     plt.ylabel('TC', fontsize=12, fontweight='bold')
     plt.xlabel('# Iterations', fontsize=12, fontweight='bold')
     plt.suptitle('Convergence', fontsize=12)
-    filename = prefix + '/summary/convergence.pdf'
+    filename = '{}/summary/convergence{}.pdf'.format(prefix, prefix2)
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
     plt.savefig(filename, bbox_inches="tight")
@@ -119,7 +121,7 @@ def plot_convergence(history, prefix=''):
 def plot_top_relationships(data, corex, labels, column_label, topk=5, prefix=''):
     dual = (corex.moments['X_i Y_j'] * corex.moments['X_i Z_j']).T
     alpha = dual > 0.04
-    cy = corex.moments['cy']
+    cy = corex.moments['ry']
     m, nv = alpha.shape
     for j in range(m):
         inds = np.where(alpha[j] > 0)[0]
@@ -138,7 +140,7 @@ def plot_top_relationships(data, corex, labels, column_label, topk=5, prefix='')
                       outfile=prefix + '/relationships/group_num=' + str(j), title=title)
 
 
-def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha=0.5, title=''):
+def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha=0.8, title=''):
     ns, n = data.shape
     if labels is None:
         labels = map(str, range(n))
@@ -167,9 +169,9 @@ def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha
 
     fig.suptitle(title, fontsize=16)
     pylab.rcParams['font.size'] = 12  #6
-    pylab.draw()
-    #fig.set_tight_layout(True)
-    # fig.tight_layout()
+    # pylab.draw()
+    # fig.set_tight_layout(True)
+    pylab.tight_layout()
     pylab.subplots_adjust(top=0.95)
     for ax in axs.flat[axs.size - 1:len(pairs) - 1:-1]:
         ax.set_visible(False)
@@ -187,6 +189,14 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     """Visualize a hierarchy of representations."""
     if column_label is None:
         column_label = map(str, range(corexes[0].mis.shape[1]))
+
+    f = safe_open(prefix + '/summary/higher_layer_group_tcs.txt', 'w+')
+    for j, corex in enumerate(corexes):
+        f.write('At layer: %d, Total TC: %0.3f\n' % (j, corex.tc))
+        f.write('Individual TCS:' + str(corex.tcs) + '\n')
+        if hasattr(corex, "history"):
+            plot_convergence(corex.history, prefix=prefix, prefix2=j)
+    f.close()
 
     import textwrap
     column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=17, break_long_words=False)), column_label)
