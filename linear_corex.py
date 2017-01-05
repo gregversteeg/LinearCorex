@@ -118,7 +118,7 @@ class Corex(object):
             self.eps = eps
             if i_eps > 0:
                 eps0 = eps_schedule[i_eps - 1]
-                mag = 1 - self.yscale**2 / self.moments['Y_j^2']
+                mag = (1 - self.yscale**2 / self.moments['Y_j^2']).clip(1e-5)
                 wmag = np.sum(self.ws**2, axis=1)
                 self.ws *= np.sqrt((1 - eps0**2) / (1 - eps**2 - (eps0**2 - eps**2) * wmag / mag))[:, np.newaxis]
             self.moments = self._calculate_moments(x, self.ws, quick=True)
