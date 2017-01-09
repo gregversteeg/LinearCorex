@@ -49,27 +49,27 @@ eliminate_synergy = True
 
 np.random.seed(seed)
 x, z = gen_data_cap(n_sources=1, k=10, n_samples=N, capacity=C) # , noise=0.1)
-out = lc.Corex(n_hidden=1, verbose=True, max_iter=max_iter, tol=tol, seed=seed,gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
+out = lc.Corex(n_hidden=1, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
 errs.append(relative_error(out.history['TC']))
 print np.max(np.abs(out.ws))
 print 'TC', out.tc
 
 np.random.seed(seed)
 x, z = gen_data_cap(n_sources=10, k=100, n_samples=N, capacity=C) #, noise=10)
-out = lc.Corex(n_hidden=10, verbose=True, max_iter=max_iter, tol=tol, seed=seed,gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
+out = lc.Corex(n_hidden=10, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
 errs.append(relative_error(out.history['TC']))
 print np.max(np.abs(out.ws))
 print 'TC', out.tc
 
 np.random.seed(seed)
-out = lc.Corex(n_hidden=10, verbose=True, max_iter=max_iter, tol=tol, seed=seed,gpu=gpu, eliminate_synergy=eliminate_synergy).fit(np.random.randn(N,1000))
+out = lc.Corex(n_hidden=10, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(np.random.randn(N,1000))
 errs.append(relative_error(out.history['TC']))
 print np.max(np.abs(out.ws))
 print 'TC', out.tc
 
 np.random.seed(seed)
 x, z = gen_data_cap(n_sources=50, k=10, n_samples=100, capacity=C) # , noise=100)
-out = lc.Corex(n_hidden=50, verbose=True, max_iter=max_iter, tol=tol, seed=seed,gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
+out = lc.Corex(n_hidden=50, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
 errs.append(relative_error(out.history['TC']))
 print np.max(np.abs(out.ws))
 print 'TC', out.tc
