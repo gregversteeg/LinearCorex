@@ -86,7 +86,6 @@ for loop_i in range(1):
     print 'Number Ok, %d / %d' % (np.sum(scores > 0.5), len(scores))
     print 'total score, %0.3f' % np.sum(scores)
 
-print 'precision', out.noise
 names = []
 for j, group in enumerate(data_groups):
     color = colors[j]

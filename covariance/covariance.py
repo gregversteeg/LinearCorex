@@ -10,6 +10,9 @@ from scipy.stats import rankdata
 from sklearn.utils.extmath import fast_logdet, pinvh
 sys.path.append('..')
 import linear_corex as lc
+import os
+if not os.path.isdir('figs'):
+    os.makedirs('figs')
 
 # COVARIANCE MATRIX ESTIMATORS
 methods = [
@@ -121,8 +124,8 @@ tableau = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e
 
 
 def plot_scores(xs, scores, p, name='plot', option=None):
-    #plt.style.use('https://dl.dropboxusercontent.com/u/23723667/gv.mplstyle')
-    plt.style.use('/Users/gregv/Dropbox/Public/gv.mplstyle')
+    plt.style.use('https://dl.dropboxusercontent.com/u/23723667/gv.mplstyle')
+    #plt.style.use('/Users/gregv/Dropbox/Public/gv.mplstyle')
     fig = plt.figure(figsize=(8, 5))
     ax = plt.subplot(111)
 
@@ -187,7 +190,8 @@ def plot_scores(xs, scores, p, name='plot', option=None):
 
 
 def plot_cov(covs, name='cov'):
-    plt.style.use('/Users/gregv/Dropbox/Public/gv_heat.mplstyle')
+    plt.style.use('https://dl.dropboxusercontent.com/u/23723667/gv.mplstyle')
+    # plt.style.use('/Users/gregv/Dropbox/Public/gv_heat.mplstyle')
     colorscheme = plt.cm.RdBu_r
 
     # Print key
@@ -196,7 +200,7 @@ def plot_cov(covs, name='cov'):
     plt.gca().set_visible(False)
     cb = plt.colorbar(orientation='horizontal', ticks=[])
     cb.outline.set_edgecolor('white')
-    plt.savefig("key.png")
+    plt.savefig("figs/key.png")
     plt.clf()
 
     # Plot matrices
