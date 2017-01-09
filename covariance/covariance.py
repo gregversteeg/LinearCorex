@@ -2,7 +2,7 @@ from sklearn.covariance import LedoitWolf, OAS, ShrunkCovariance, GraphLassoCV
 from sklearn.decomposition import FactorAnalysis
 import numpy as np
 import matplotlib
-matplotlib.use('MacOSX')
+# matplotlib.use('MacOSX')
 import matplotlib.pyplot as plt
 from matplotlib import animation
 import sys
