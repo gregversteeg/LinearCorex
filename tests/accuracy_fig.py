@@ -3,7 +3,6 @@ import numpy as np
 import sys
 sys.path.append('..')
 sys.path.append('../..')
-from modules import * 
 import linear_corex as lc
 from sklearn.metrics import adjusted_rand_score
 import os

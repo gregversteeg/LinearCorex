@@ -3,12 +3,32 @@ import numpy as np
 import sys
 sys.path.append('..')
 sys.path.append('../..')
-from modules import * 
 import linear_corex as lc
 import os
 if not os.path.isdir('figs'):
     os.makedirs('figs')
 
+
+def shannon_noise(c):
+  # Give the noise level compatible with a certain capacity (assuming standard signal)
+  return 1. / (np.exp(2. * c) - 1)
+
+def random_frac(k):
+  # q = np.random.random(k)
+  # return q / np.sum(q)
+  return np.random.dirichlet(np.ones(k))
+
+def gen_data_cap(n_sources=1, k=10, n_samples=1000, capacity=4.):
+  """Generate data. The model is that there are n_sources, Z_j, normal with unit variance.
+     There are k observed vars per source, X_i = Z_j + E_i. E_i is iid normal noise with variance 'noise' (AWGN).
+     Noise is chosen randomly so that the capacity for each source is fixed.
+     There is a Shannon threshold relating k and noise, defined by shannon_ functions
+  """
+  sources = np.random.randn(n_samples, n_sources)
+  capacities = [capacity * random_frac(k) for source in sources.T]
+  noises = [shannon_noise(c) for c in capacities]
+  observed = np.vstack([source + np.sqrt(noises[j][i]) * np.random.randn(n_samples) for j, source in enumerate(sources.T) for i in range(k)]).T
+  return observed, sources
 
 def relative_error(tc_history):
   y = tc_history[1:]
