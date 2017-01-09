@@ -66,14 +66,14 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation [tbd]" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, schedule=True,
+    def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, anneal=True,
                  eliminate_synergy=True, gaussianize='standard', gpu=False,  # GPU_SUPPORT,  # TODO: numerical precision issues?
                  verbose=False, seed=None):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
         self.tol = tol  # Threshold for convergence
-        self.schedule = schedule
-        self.eps = 0  # If schedule is True, it's adjusted during optimization to avoid local minima
+        self.anneal = anneal
+        self.eps = 0  # If anneal is True, it's adjusted during optimization to avoid local minima
 
         self.eliminate_synergy = eliminate_synergy  # Whether or not to constrain to additive solutions
         self.gaussianize = gaussianize  # Preprocess data: 'standard' scales to zero mean and unit variance
@@ -108,7 +108,7 @@ class Corex(object):
             if self.eliminate_synergy:
                 self.ws = np.random.randn(self.m, self.nv)
                 self.ws /= (10 * np.sum(np.abs(self.ws), axis=1, keepdims=True))
-                if self.schedule:
+                if self.anneal:
                     eps_schedule = [0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.]
             else:
                 self.ws = np.random.randn(self.m, self.nv) * self.yscale ** 2 / np.sqrt(self.nv)
