@@ -118,7 +118,7 @@ class Corex(object):
             self.eps = eps
             if i_eps > 0:
                 eps0 = eps_schedule[i_eps - 1]
-                mag = (1 - self.yscale**2 / self.moments['Y_j^2']).clip(1e-5)
+                mag = (1 - self.yscale**2 / self.moments['Y_j^2']).clip(1e-5)  # May be better to re-initialize un-used latent factors (i.e. yj^2=self.yscale**2)?
                 wmag = np.sum(self.ws**2, axis=1)
                 self.ws *= np.sqrt((1 - eps0**2) / (1 - eps**2 - (eps0**2 - eps**2) * wmag / mag))[:, np.newaxis]
             self.moments = self._calculate_moments(x, self.ws, quick=True)
@@ -383,10 +383,32 @@ class Corex(object):
         np.fill_diagonal(cov, 1)
         return cov
 
-    def estimate_covariance(self):
+
+    def estimate_covariance2(self):
+        # This uses xi yj Sig^-1 yj Xi formula, with empirical covariance for Y
         m = self.moments
         z = m['rhoinvrho'] / (1 + m['Si'])
         cov = np.dot(z.T, np.dot(m["ry"], z))
+        cov /= (1. - self.eps**2)
+        np.fill_diagonal(cov, 1)
+        return cov
+
+    def estimate_covariance3(self):
+        # This one uses xi yj Sig^-1 yj Xi formula, with Sig = identity
+        m = self.moments
+        z = m['rho']
+        cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
+        cov /= (1. - self.eps**2)
+        # np.fill_diagonal(cov, 1)
+        return cov
+
+    def estimate_covariance(self):
+        # TODO: This assumes no nonlinear scaling. Could we get it if we had nonlinear transforms?
+        # TODO: What is sigma Y? We could calculate this hierarchically. We assume here TC(Y)=0, as would be at global opt.
+        # This uses E(Xi|Y) formula for non-synergistic relationships
+        m = self.moments
+        z = m['rhoinvrho'] / (1 + m['Si'])
+        cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
         cov /= (1. - self.eps**2)
         np.fill_diagonal(cov, 1)
         return cov
