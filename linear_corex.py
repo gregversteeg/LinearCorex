@@ -103,21 +103,21 @@ class Corex(object):
     def fit(self, x):
         x = self.preprocess(x, fit=True)  # Fit a transform for each marginal
         self.n_samples, self.nv = x.shape  # Number of samples, variables in input data
-        eps_schedule = [0.]
+        anneal_schedule = [0.]
         if self.ws.size == 0:  # Randomly initialize weights if not already set
             if self.eliminate_synergy:
                 self.ws = np.random.randn(self.m, self.nv)
                 self.ws /= (10. * self._norm(x, self.ws))[:, np.newaxis]  # TODO: test good IC
                 if self.anneal:
-                    eps_schedule = [0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.]
+                    anneal_schedule = [0.6**k for k in range(1, 7)] + [0]
             else:
                 self.ws = np.random.randn(self.m, self.nv) * self.yscale ** 2 / np.sqrt(self.nv)
         self.moments = self._calculate_moments(x, self.ws, quick=True)
 
-        for i_eps, eps in enumerate(eps_schedule):
+        for i_eps, eps in enumerate(anneal_schedule):
             self.eps = eps
             if i_eps > 0:
-                eps0 = eps_schedule[i_eps - 1]
+                eps0 = anneal_schedule[i_eps - 1]
                 mag = (1 - self.yscale**2 / self.moments['Y_j^2']).clip(1e-5)  # May be better to re-initialize un-used latent factors (i.e. yj^2=self.yscale**2)?
                 wmag = np.sum(self.ws**2, axis=1)
                 self.ws *= np.sqrt((1 - eps0**2) / (1 - eps**2 - (eps0**2 - eps**2) * wmag / mag))[:, np.newaxis]
