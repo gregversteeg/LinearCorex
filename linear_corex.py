@@ -66,7 +66,7 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation [tbd]" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, anneal=True,
+    def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, anneal=True, missing_values=np.nan,
                  eliminate_synergy=True, gaussianize='standard', gpu=GPU_SUPPORT,
                  verbose=False, seed=None):
         self.m = n_hidden  # Number of latent factors to learn
@@ -74,6 +74,7 @@ class Corex(object):
         self.tol = tol  # Threshold for convergence
         self.anneal = anneal
         self.eps = 0  # If anneal is True, it's adjusted during optimization to avoid local minima
+        self.missing_values = missing_values
 
         self.eliminate_synergy = eliminate_synergy  # Whether or not to constrain to additive solutions
         self.gaussianize = gaussianize  # Preprocess data: 'standard' scales to zero mean and unit variance
@@ -359,6 +360,7 @@ class Corex(object):
         'empirical' does an empirical gaussianization (but this cannot be inverted).
         'outliers' tries to squeeze in the outliers
         Any other choice will skip the transformation."""
+        x = random_impute(x, self.missing_values)
         if self.gaussianize == 'standard':
             if fit:
                 x = x.copy()
@@ -432,3 +434,17 @@ def g_inv(x, t=4):
     xp = np.clip(x, -t, t)
     diff = np.arctanh(np.clip(x - xp, -1 + 1e-10, 1 - 1e-10))
     return xp + diff
+
+
+def random_impute(x, v):
+    """Missing values in the data, x, are indicated by v. Wherever this value appears in x, it is replaced by a
+    random value taken from the marginal distribution of that column."""
+    if not np.isnan(v):
+        x = np.where(x == v, np.nan, x)
+    x_new = []
+    for i, xi in enumerate(x.T):
+        missing_locs = np.where(np.isnan(xi))[0]
+        xi_nm = xi[np.isfinite(xi)]
+        xi[missing_locs] = np.random.choice(xi_nm, size=len(missing_locs))
+        x_new.append(xi)
+    return np.array(x_new).T
