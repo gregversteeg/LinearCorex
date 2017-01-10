@@ -67,7 +67,7 @@ class Corex(object):
     """
 
     def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, anneal=True,
-                 eliminate_synergy=True, gaussianize='standard', gpu=False,  # GPU_SUPPORT,  # TODO: numerical precision issues?
+                 eliminate_synergy=True, gaussianize='standard', gpu=GPU_SUPPORT,
                  verbose=False, seed=None):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
@@ -107,7 +107,7 @@ class Corex(object):
         if self.ws.size == 0:  # Randomly initialize weights if not already set
             if self.eliminate_synergy:
                 self.ws = np.random.randn(self.m, self.nv)
-                self.ws /= (10 * np.sum(np.abs(self.ws), axis=1, keepdims=True))
+                self.ws /= (10. * self._norm(x, self.ws))[:, np.newaxis]  # TODO: test good IC
                 if self.anneal:
                     eps_schedule = [0.6, 0.5, 0.4, 0.3, 0.2, 0.1, 0.]
             else:
@@ -173,14 +173,28 @@ class Corex(object):
         """Multiple the matrix u by the covariance matrix of x. We are interested in situations where
         n_variables >> n_samples, so we do this without explicitly constructing the covariance matrix."""
         if self.gpu:
-            y = x.dot(cm.CUDAMatrix(u).T)
-            tmp_dot = cm.dot(x.T, y)
+            y = cm.empty((self.n_samples, self.m))
+            cm.dot(x, cm.CUDAMatrix(u).T, target=y)
+            tmp_dot = cm.empty((self.nv, self.m))
+            cm.dot(x.T, y, target=tmp_dot)
             tmp_dot = tmp_dot.asarray()
         else:
             y = x.dot(u.T)
             tmp_dot = x.T.dot(y)
         prod = np.sqrt(1 - self.eps**2) * tmp_dot / self.n_samples + self.eps**2 * u.T  # nv by m,  <X_i Y_j> / std Y_j
         return prod.T
+
+    def _norm(self, x, ws):
+        """Calculate uj so that we can normalize it."""
+        if self.gpu:
+            y = cm.empty((self.n_samples, self.m))
+            cm.dot(x, cm.CUDAMatrix(ws).T, target=y)  # + noise, but it is included analytically
+            y_local = y.asarray()
+            tmp_sum = np.einsum('lj,lj->j', y_local, y_local)  # TODO: Should be able to do on gpu...
+        else:
+            y = x.dot(ws.T)  # + noise / std Y_j^2, but it is included analytically
+            tmp_sum = np.einsum('lj,lj->j', y, y)
+        return np.sqrt((1 - self.eps**2) * tmp_sum / self.n_samples + self.eps**2 * np.sum(ws**2, axis=1))
 
     def _calculate_moments(self, x, ws, quick=False):
         if self.eliminate_synergy:
@@ -193,19 +207,19 @@ class Corex(object):
         the value of the objective. Note it is assumed that <X_i^2> = 1! """
         m = {}  # Dictionary of moments
         if self.gpu:
-            y = x.dot(cm.CUDAMatrix(ws).T)  # + noise, but it is included analytically
-            #tmp_sum = cm.empty(y.shape)
-            #cm.pow(y, 2, target=tmp_sum)
-            #tmp_sum = np.sum(tmp_sum.asarray(), axis=0)  # TODO: Dumb, should be able to sum on GPU. Probs with prec.?
-            tmp_sum = np.einsum('lj,lj->j', y.asarray(), y.asarray())
+            y = cm.empty((self.n_samples, self.m))
+            cm.dot(x, cm.CUDAMatrix(ws).T, target=y)  # + noise, but it is included analytically
+            tmp_sum = np.einsum('lj,lj->j', y.asarray(), y.asarray())  # TODO: Should be able to do on gpu...
         else:
-            y = x.dot(ws.T)  # + noise / std Y_j^2, but it is included analytically
+            y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically
             tmp_sum = np.einsum('lj,lj->j', y, y)
         m["uj"] = (1 - self.eps**2) * tmp_sum / self.n_samples + self.eps**2 * np.sum(ws**2, axis=1)
         if quick and np.max(m["uj"]) >= 1.:
             return False
         if self.gpu:
-            tmp_dot = (cm.dot(x.T, y)).asarray()
+            tmp = cm.empty((self.nv, self.m))
+            cm.dot(x.T, y, target=tmp)
+            tmp_dot = tmp.asarray()
         else:
             tmp_dot = x.T.dot(y)
         m["rho"] = (1 - self.eps**2) * tmp_dot.T / self.n_samples + self.eps**2 * ws  # m by nv
@@ -287,11 +301,13 @@ class Corex(object):
         the value of the objective. Note it is assumed that <X_i^2> = 1! """
         m = {}  # Dictionary of moments
         if self.gpu:
-            y = x.dot(cm.CUDAMatrix(ws).T)  # + noise, but it is included analytically
+            y = cm.empty((self.n_samples, self.m))
+            cm.dot(x, cm.CUDAMatrix(ws).T, target=y)  # + noise, but it is included analytically
         else:
             y = x.dot(ws.T)  # + noise, but it is included analytically
         if self.gpu:
-            tmp_dot = cm.dot(x.T, y)
+            tmp_dot = cm.empty((self.nv, self.m))
+            cm.dot(x.T, y, target=tmp_dot)
             m["X_i Y_j"] = tmp_dot.asarray() / self.n_samples  # nv by m,  <X_i Y_j>
         else:
             m["X_i Y_j"] = x.T.dot(y) / self.n_samples

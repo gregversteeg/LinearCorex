@@ -50,6 +50,7 @@ ks = [4, 8, 16, 32]
 Ns = [100, 1000]
 Cs = [1, 4, 16]
 seed = 1
+gpu = False
 np.random.seed(seed)
 colorscheme = plt.cm.RdBu_r
 fig, axs = plt.subplots(len(Ns), len(Cs), figsize=(5 * len(Cs), 5 * len(Ns)), sharex=True, sharey=True)
@@ -61,7 +62,7 @@ for Ni, N in enumerate(Ns):
             for ki, k in enumerate(ks):
                 print("N:{},C:{},m:{},k:{}".format(N, C, m, k))
                 x = gen_data_cap(p=k * m, n_sources=m, n_samples=N, capacity=C)
-                out = lc.Corex(n_hidden=m, seed=seed, verbose=1, max_iter=10000, gpu=False).fit(x)
+                out = lc.Corex(n_hidden=m, seed=seed, verbose=1, max_iter=10000, gpu=gpu).fit(x)
                 groups = np.argmax(np.abs(out.ws), axis=0)
                 results[mi, ki] = group_score(groups, m, k)
         ax = axs[Ni, Ci]
