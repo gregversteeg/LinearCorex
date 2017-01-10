@@ -22,11 +22,10 @@ methods = [
     ("Empirical", lambda m, x: np.cov(x.T)),
     ("Ledoit-Wolf", lambda m, x: LedoitWolf(store_precision=False, assume_centered=True, block_size=2000).fit(x).covariance_),
     ("Factor An.", lambda m, x: FactorAnalysis(n_components=m).fit(x).get_covariance()),
-    #("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False).fit(x).estimate_covariance_alternate()),
+    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False).fit(x).estimate_covariance()),
     ("GLASSO", lambda m, x: GraphLassoCV().fit(x).covariance_),
     ("LinCorEx", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance()),
-    #("LinCorEx2", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance2()),
-    #("LinCorEx3", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance3())
+    #("LinCorEx2", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance2())
 ]
 
 methods_no_truth = [
@@ -35,7 +34,7 @@ methods_no_truth = [
     ("Empirical", lambda m, x: np.cov(x.T)),
     ("Ledoit-Wolf", lambda m, x: LedoitWolf(store_precision=False, assume_centered=True, block_size=2000).fit(x).covariance_),
     ("Factor An.", lambda m, x: FactorAnalysis(n_components=m).fit(x).get_covariance()),
-    ("LinCorEx2", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False).fit(x).estimate_covariance_alternate()),
+    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False).fit(x).estimate_covariance()),
     ("GLASSO", lambda m, x: GraphLassoCV().fit(x).covariance_),
     ("LinCorEx", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance())
 ]

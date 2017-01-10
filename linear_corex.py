@@ -211,7 +211,7 @@ class Corex(object):
             cm.dot(x, cm.CUDAMatrix(ws).T, target=y)  # + noise, but it is included analytically
             tmp_sum = np.einsum('lj,lj->j', y.asarray(), y.asarray())  # TODO: Should be able to do on gpu...
         else:
-            y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically
+            y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically  TODO: why does this casting help? Is it a poor man's way of introducing a little noise?
             tmp_sum = np.einsum('lj,lj->j', y, y)
         m["uj"] = (1 - self.eps**2) * tmp_sum / self.n_samples + self.eps**2 * np.sum(ws**2, axis=1)
         if quick and np.max(m["uj"]) >= 1.:
@@ -224,7 +224,7 @@ class Corex(object):
             tmp_dot = x.T.dot(y)
         m["rho"] = (1 - self.eps**2) * tmp_dot.T / self.n_samples + self.eps**2 * ws  # m by nv
         m["ry"] = ws.dot(m["rho"].T)  # normalized covariance of Y
-        m["Y_j^2"] = self.yscale ** 2 / (1. - m["uj"])  # TODO: This is the one we want first...
+        m["Y_j^2"] = self.yscale ** 2 / (1. - m["uj"])
         np.fill_diagonal(m["ry"], 1)
         m["invrho"] = 1. / (1. - m["rho"]**2)
         m["rhoinvrho"] = m["rho"] * m["invrho"]
@@ -393,15 +393,9 @@ class Corex(object):
     def predict(self, y):
         return self.invert(np.dot(self.moments["X_i Z_j"], y.T).T)
 
-    def estimate_covariance_alternate(self):
-        m = self.moments
-        cov = np.einsum('ij,kj->ik', m["X_i Z_j"], m["X_i Y_j"])
-        np.fill_diagonal(cov, 1)
-        return cov
-
-
     def estimate_covariance2(self):
-        # This uses xi yj Sig^-1 yj Xi formula, with empirical covariance for Y
+        # This uses empirical covariance for Y
+        # TODO: We could estimate covariance of Y using a hierarchy of corex models!
         m = self.moments
         z = m['rhoinvrho'] / (1 + m['Si'])
         cov = np.dot(z.T, np.dot(m["ry"], z))
@@ -409,25 +403,21 @@ class Corex(object):
         np.fill_diagonal(cov, 1)
         return cov
 
-    def estimate_covariance3(self):
-        # This one uses xi yj Sig^-1 yj Xi formula, with Sig = identity
-        m = self.moments
-        z = m['rho']
-        cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
-        cov /= (1. - self.eps**2)
-        # np.fill_diagonal(cov, 1)
-        return cov
-
     def estimate_covariance(self):
         # TODO: This assumes no nonlinear scaling. Could we get it if we had nonlinear transforms?
         # TODO: What is sigma Y? We could calculate this hierarchically. We assume here TC(Y)=0, as would be at global opt.
         # This uses E(Xi|Y) formula for non-synergistic relationships
         m = self.moments
-        z = m['rhoinvrho'] / (1 + m['Si'])
-        cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
-        cov /= (1. - self.eps**2)
-        np.fill_diagonal(cov, 1)
-        return cov
+        if self.eliminate_synergy:
+            z = m['rhoinvrho'] / (1 + m['Si'])
+            cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
+            cov /= (1. - self.eps**2)
+            np.fill_diagonal(cov, 1)
+            return cov
+        else:
+            cov = np.einsum('ij,kj->ik', m["X_i Z_j"], m["X_i Y_j"])
+            np.fill_diagonal(cov, 1)
+            return cov
 
 
 def g(x, t=4):
