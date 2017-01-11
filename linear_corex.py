@@ -175,10 +175,14 @@ class Corex(object):
         n_variables >> n_samples, so we do this without explicitly constructing the covariance matrix."""
         if self.gpu:
             y = cm.empty((self.n_samples, self.m))
-            cm.dot(x, cm.CUDAMatrix(u).T, target=y)
-            tmp_dot = cm.empty((self.nv, self.m))
-            cm.dot(x.T, y, target=tmp_dot)
-            tmp_dot = tmp_dot.asarray()
+            uc = cm.CUDAMatrix(u)
+            cm.dot(x, uc.T, target=y)
+            del uc
+            tmp = cm.empty((self.nv, self.m))
+            cm.dot(x.T, y, target=tmp)
+            tmp_dot = tmp.asarray()
+            del y
+            del tmp
         else:
             y = x.dot(u.T)
             tmp_dot = x.T.dot(y)
@@ -189,8 +193,11 @@ class Corex(object):
         """Calculate uj so that we can normalize it."""
         if self.gpu:
             y = cm.empty((self.n_samples, self.m))
-            cm.dot(x, cm.CUDAMatrix(ws).T, target=y)  # + noise, but it is included analytically
+            wc = cm.CUDAMatrix(ws)
+            cm.dot(x, wc.T, target=y)  # + noise, but it is included analytically
             y_local = y.asarray()
+            del y
+            del wc
             tmp_sum = np.einsum('lj,lj->j', y_local, y_local)  # TODO: Should be able to do on gpu...
         else:
             y = x.dot(ws.T)  # + noise / std Y_j^2, but it is included analytically
@@ -209,7 +216,9 @@ class Corex(object):
         m = {}  # Dictionary of moments
         if self.gpu:
             y = cm.empty((self.n_samples, self.m))
-            cm.dot(x, cm.CUDAMatrix(ws).T, target=y)  # + noise, but it is included analytically
+            wc = cm.CUDAMatrix(ws)
+            cm.dot(x, wc.T, target=y)  # + noise, but it is included analytically
+            del wc
             tmp_sum = np.einsum('lj,lj->j', y.asarray(), y.asarray())  # TODO: Should be able to do on gpu...
         else:
             y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically  TODO: why does this casting help? Is it a poor man's way of introducing a little noise?
@@ -221,6 +230,8 @@ class Corex(object):
             tmp = cm.empty((self.nv, self.m))
             cm.dot(x.T, y, target=tmp)
             tmp_dot = tmp.asarray()
+            del tmp
+            del y
         else:
             tmp_dot = x.T.dot(y)
         m["rho"] = (1 - self.eps**2) * tmp_dot.T / self.n_samples + self.eps**2 * ws  # m by nv
@@ -303,13 +314,17 @@ class Corex(object):
         m = {}  # Dictionary of moments
         if self.gpu:
             y = cm.empty((self.n_samples, self.m))
-            cm.dot(x, cm.CUDAMatrix(ws).T, target=y)  # + noise, but it is included analytically
+            wc = cm.CUDAMatrix(ws)
+            cm.dot(x, wc.T, target=y)  # + noise, but it is included analytically
+            del wc
         else:
             y = x.dot(ws.T)  # + noise, but it is included analytically
         if self.gpu:
             tmp_dot = cm.empty((self.nv, self.m))
             cm.dot(x.T, y, target=tmp_dot)
             m["X_i Y_j"] = tmp_dot.asarray() / self.n_samples  # nv by m,  <X_i Y_j>
+            del y
+            del tmp_dot
         else:
             m["X_i Y_j"] = x.T.dot(y) / self.n_samples
         m["cy"] = ws.dot(m["X_i Y_j"]) + self.yscale ** 2 * np.eye(self.m)  # cov(y.T), m by m
