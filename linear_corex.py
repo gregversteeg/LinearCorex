@@ -375,10 +375,10 @@ class Corex(object):
         'empirical' does an empirical gaussianization (but this cannot be inverted).
         'outliers' tries to squeeze in the outliers
         Any other choice will skip the transformation."""
+        x = x.copy()
         x = random_impute(x, self.missing_values)
         if self.gaussianize == 'standard':
             if fit:
-                x = x.copy()
                 mean = np.mean(x, axis=0)
                 std = np.std(x, axis=0, ddof=0).clip(1e-10)
                 self.theta = (mean, std)
@@ -435,6 +435,19 @@ class Corex(object):
             cov = np.einsum('ij,kj->ik', m["X_i Z_j"], m["X_i Y_j"])
             np.fill_diagonal(cov, 1)
             return cov
+
+    def estimate_covariance_h(self, x, m2=1):
+        layer2 = Corex(n_hidden=m2, eliminate_synergy=True, gpu=self.gpu, verbose=self.verbose)
+        x = self.preprocess(x, fit=False)
+        y = self.transform(x)
+        layer2.fit(y)
+        ry = layer2.estimate_covariance()
+        m = self.moments
+        z = m['rhoinvrho'] / (1 + m['Si'])
+        cov = np.dot(z.T, np.dot(ry, z))
+        cov /= (1. - self.eps**2)
+        np.fill_diagonal(cov, 1)
+        return cov
 
 
 def g(x, t=4):

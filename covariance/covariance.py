@@ -22,10 +22,10 @@ methods = [
     ("Empirical", lambda m, x: np.cov(x.T)),
     ("Ledoit-Wolf", lambda m, x: LedoitWolf(store_precision=False, assume_centered=True, block_size=2000).fit(x).covariance_),
     ("Factor An.", lambda m, x: FactorAnalysis(n_components=m).fit(x).get_covariance()),
-    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False, gpu=False).fit(x).estimate_covariance()),
+    ("LC0", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False, gpu=False).fit(x).estimate_covariance()),
     ("GLASSO", lambda m, x: GraphLassoCV().fit(x).covariance_),
     ("LinCorEx", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance()),
-    #("LinCorEx2", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance2())
+    # ("LinCorExH", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance_h(x))
 ]
 
 methods_no_truth = [
@@ -34,9 +34,10 @@ methods_no_truth = [
     ("Empirical", lambda m, x: np.cov(x.T)),
     ("Ledoit-Wolf", lambda m, x: LedoitWolf(store_precision=False, assume_centered=True, block_size=2000).fit(x).covariance_),
     ("Factor An.", lambda m, x: FactorAnalysis(n_components=m).fit(x).get_covariance()),
-    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False, gpu=False).fit(x).estimate_covariance()),
+    ("LC0", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False, gpu=False).fit(x).estimate_covariance()),
     ("GLASSO", lambda m, x: GraphLassoCV().fit(x).covariance_),
-    ("LinCorEx", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance())
+    ("LinCorEx", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance()),
+    # ("LinCorExH", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance_h(x))
 ]
 
 # DATA GENERATING METHODS
@@ -157,8 +158,8 @@ def plot_scores(xs, scores, p, name='plot', option=None):
     #    plt.plot([x0, x1], [y, y], "--", lw=0.5, color="black", alpha=0.3)
     #for x in xs:
     #    plt.plot([x, x], [y0, y1], "--", lw=0.5, color="black", alpha=0.3)
-    plt.plot([np.log2(p), np.log2(p)], [y0, y1], ":", lw=2., color="red", alpha=0.8)  # n=p, special color
-    plt.text(np.log2(p), y0, ' $n=p$', fontsize=16, fontweight='bold', color='red')
+    plt.plot([p, p], [y0, y1], ":", lw=2., color="red", alpha=0.8)  # n=p, special color
+    plt.text(p, y0, ' $n=p$', fontsize=16, fontweight='bold', color='red')
 
     if option is not None:
         pass
@@ -214,7 +215,7 @@ def plot_cov(covs, name='cov'):
     plt.savefig("{}_cov.png".format(name))
     plt.close('all')
 
-def plot_cov_grid(cov_grid, names, ns, p, name='grid'):
+def plot_cov_grid(cov_grid, names, ns, name='grid'):
     colorscheme = plt.cm.RdBu_r
     matplotlib.rcParams.update(matplotlib.rcParamsDefault)  # Ever using "tight layout" messes up all future animations
 
@@ -243,7 +244,7 @@ def plot_cov_grid(cov_grid, names, ns, p, name='grid'):
         for i, artist in enumerate(artists):
             if i < len(names):
                 artist.set_array(cov_grid[-j - 1][i])
-        title.set_text('n = {} = 2^{} * p'.format(ns[-j-1], int(np.log2(float(ns[-j-1]) / p))))
+        title.set_text('n = {}'.format(ns[-j-1]))
         return artists + [title]
 
     anim = animation.FuncAnimation(fig, animate, init_func=init, frames=len(cov_grid), blit=True, repeat=False)

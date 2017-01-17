@@ -43,11 +43,11 @@ for imethod, (name, method) in enumerate(methods):
 
 print 'plot scores'
 print results
-plot_scores(ns, results, p, name=exp_prefix)
+plot_scores(ns, results, np.log2(p), name=exp_prefix)
 
 print 'animate matrices'
 skip_index = [name for name, _ in methods].index("Independent")
 names = [name for name, _ in methods if name is not 'Independent']
 for i in range(len(cov_grid)):
     cov_grid[i] = [cov_grid[i][j] for j in range(len(cov_grid[i])) if j != skip_index]
-plot_cov_grid(cov_grid, names, ns, p, exp_prefix)
+plot_cov_grid(cov_grid, names, ns, exp_prefix)
