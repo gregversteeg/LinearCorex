@@ -8,7 +8,7 @@ import numpy as np
 import pylab
 import networkx as nx
 import matplotlib.pyplot as plt
-
+import codecs
 
 # These are the "Tableau 20" colors as RGB.
 tableau20 = [(31, 119, 180), (255, 127, 14),
@@ -220,20 +220,6 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     tree = trim(tree, max_parents=1, max_children=False)
     edge2pdf(tree, prefix + '/graphs/tree', labels='label', directed=True, makepdf=True)
 
-    # Output JSON files
-    try:
-        import os
-        copyfile(os.path.dirname(os.path.realpath(__file__)) + '/tests/d3_files/force.html', prefix + '/graphs/force.html')
-    except:
-        print "Couldn't find 'force.html' file for visualizing d3 output"
-    import json
-    from networkx.readwrite import json_graph
-
-    mapping = dict([(n, tree.node[n].get('label', str(n))) for n in tree.nodes()])
-    tree = nx.relabel_nodes(tree, mapping)
-    json.dump(json_graph.node_link_data(tree), safe_open(prefix + '/graphs/force.json', 'w+'))
-    json.dump(json_graph.node_link_data(h), safe_open(prefix + '/graphs/force_nontree.json', 'w+'))
-
     return g
 
 
@@ -396,7 +382,7 @@ def trim(g, max_parents=False, max_children=False):
 def safe_open(filename, mode):
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
-    return open(filename, mode)
+    return codecs.open(filename, mode, 'utf8')
 
 
 if __name__ == '__main__':
@@ -448,6 +434,12 @@ if __name__ == '__main__':
                      help="By default, we attempt to find non-synergistic solutions (better). -a will turn this off.")
     parser.add_option_group(group)
 
+    group = OptionGroup(parser, "Computational Options")
+    group.add_option("-n", "--gpu",
+                     action="store_true", dest="gpu", default=False,
+                     help="Try to use the gpu.")
+    parser.add_option_group(group)
+
     group = OptionGroup(parser, "Output Options")
     group.add_option("-o", "--output",
                      action="store", dest="output", type="string", default="corex_output",
@@ -493,9 +485,6 @@ if __name__ == '__main__':
 
     try:
         X = np.array(data, dtype=float)  # Data matrix in numpy format
-        Xm = ma.masked_equal(X, options.missing)
-        mean_x = ma.mean(Xm, axis=0)[np.newaxis, :]
-        X = np.where(X == options.missing, mean_x, X)
     except:
         print "Incorrect data format.\nCheck that you've correctly specified options " \
               "such as continuous or not, \nand if there is a header row or column.\n" \
@@ -517,12 +506,17 @@ if __name__ == '__main__':
                 print "Layer ", l
             if l == 0:
                 t0 = time()
-                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X)]
+                corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize,
+                                    missing_values=options.missing, eliminate_synergy=options.additive,
+                                    gpu=options.gpu,
+                                    max_iter=options.max_iter).fit(X)]
                 print 'Time for first layer: %0.2f' % (time() - t0)
                 X_prev = X
             else:
                 X_prev = corexes[-1].transform(X_prev)
-                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize, eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X_prev))
+                corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize,
+                                        gpu=options.gpu,
+                                        eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
             print 'TC at layer %d is: %0.3f' % (l, corex.tc)

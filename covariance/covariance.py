@@ -22,7 +22,7 @@ methods = [
     ("Empirical", lambda m, x: np.cov(x.T)),
     ("Ledoit-Wolf", lambda m, x: LedoitWolf(store_precision=False, assume_centered=True, block_size=2000).fit(x).covariance_),
     ("Factor An.", lambda m, x: FactorAnalysis(n_components=m).fit(x).get_covariance()),
-    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False).fit(x).estimate_covariance()),
+    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False, gpu=False).fit(x).estimate_covariance()),
     ("GLASSO", lambda m, x: GraphLassoCV().fit(x).covariance_),
     ("LinCorEx", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance()),
     #("LinCorEx2", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance2())
@@ -34,7 +34,7 @@ methods_no_truth = [
     ("Empirical", lambda m, x: np.cov(x.T)),
     ("Ledoit-Wolf", lambda m, x: LedoitWolf(store_precision=False, assume_centered=True, block_size=2000).fit(x).covariance_),
     ("Factor An.", lambda m, x: FactorAnalysis(n_components=m).fit(x).get_covariance()),
-    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False).fit(x).estimate_covariance()),
+    ("LinCorExS", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, eliminate_synergy=False, gpu=False).fit(x).estimate_covariance()),
     ("GLASSO", lambda m, x: GraphLassoCV().fit(x).covariance_),
     ("LinCorEx", lambda m, x: lc.Corex(n_hidden=m, max_iter=10000, verbose=1, gpu=False).fit(x).estimate_covariance())
 ]
@@ -135,7 +135,7 @@ def plot_scores(xs, scores, p, name='plot', option=None):
     # Limits
     ymin = np.min([score for _, score in scores])
     ind_index = [n for n, score in scores].index('Independent')
-    ymax = scores[ind_index][1][0]  # Independent is Baseline
+    ymax = np.max(scores[ind_index][1])  # Independent is Baseline
     buffer = (ymax - ymin) / 5.
     y0, y1 = float(int((ymin - buffer)*100)) / 100., np.around(ymax + buffer, decimals=2)
     dy = 10.**int(np.log10(buffer))
