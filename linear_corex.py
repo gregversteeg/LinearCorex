@@ -375,8 +375,7 @@ class Corex(object):
         'empirical' does an empirical gaussianization (but this cannot be inverted).
         'outliers' tries to squeeze in the outliers
         Any other choice will skip the transformation."""
-        x = x.copy()
-        x = random_impute(x, self.missing_values)
+        x = random_impute(x, self.missing_values)  # Creates a copy
         if self.gaussianize == 'standard':
             if fit:
                 mean = np.mean(x, axis=0)
