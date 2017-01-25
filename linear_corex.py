@@ -110,7 +110,7 @@ class Corex(object):
                 self.ws = np.random.randn(self.m, self.nv)
                 self.ws /= (10. * self._norm(x, self.ws))[:, np.newaxis]  # TODO: test good IC
                 if self.anneal:
-                    anneal_schedule = [0.6**k for k in range(1, 7)] + [0]
+                    anneal_schedule = [0.6**k for k in range(1, 7)] + [1e-3]
             else:
                 self.ws = np.random.randn(self.m, self.nv) * self.yscale ** 2 / np.sqrt(self.nv)
         self.moments = self._calculate_moments(x, self.ws, quick=True)
@@ -131,6 +131,10 @@ class Corex(object):
                 else:
                     self.ws, self.moments = self._update_syn(x, eta=0.1)  # Older method that allows synergies
 
+                # assert np.isfinite(self.tc), "Error: TC is no longer finite: {}".format(self.tc)
+                if not np.isfinite(self.tc):
+                    print("Error: TC is no longer finite: {}".format(self.tc))
+                    return self
                 delta = np.abs(self.tc - last_tc)
                 self.update_records(self.moments, delta)  # Book-keeping
                 if delta < self.tol:  # Check for convergence
@@ -221,9 +225,10 @@ class Corex(object):
             del wc
             tmp_sum = np.einsum('lj,lj->j', y.asarray(), y.asarray())  # TODO: Should be able to do on gpu...
         else:
-            y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically  TODO: why does this casting help? Is it a poor man's way of introducing a little noise?
+            y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically  TODO: why does this casting speed convergence in fig_convergence? Is it a poor man's way of introducing a little noise?
             tmp_sum = np.einsum('lj,lj->j', y, y)
         m["uj"] = (1 - self.eps**2) * tmp_sum / self.n_samples + self.eps**2 * np.sum(ws**2, axis=1)
+        # print((len(m["uj"]) * ' {:10f} ').format(*m["uj"]))
         if quick and np.max(m["uj"]) >= 1.:
             return False
         if self.gpu:
@@ -247,7 +252,7 @@ class Corex(object):
         # This is the objective, a lower bound for TC
         m["TC"] = np.sum(np.log(1 + m["Si"])) \
                      - 0.5 * np.sum(np.log(1 - m["Si"]**2 + m["Qi"])) \
-                     + 0.5 * np.sum(np.log1p(-m["uj"]))
+                     + 0.5 * np.sum(np.log(1 - m["uj"]))
 
         if not quick:
             m["MI"] = - 0.5 * np.log1p(-m["rho"]**2)
