@@ -110,7 +110,7 @@ class Corex(object):
                 self.ws = np.random.randn(self.m, self.nv)
                 self.ws /= (10. * self._norm(x, self.ws))[:, np.newaxis]  # TODO: test good IC
                 if self.anneal:
-                    anneal_schedule = [0.6**k for k in range(1, 7)] + [1e-3]
+                    anneal_schedule = [0.6**k for k in range(1, 7)] + [0]
             else:
                 self.ws = np.random.randn(self.m, self.nv) * self.yscale ** 2 / np.sqrt(self.nv)
         self.moments = self._calculate_moments(x, self.ws, quick=True)
@@ -247,6 +247,7 @@ class Corex(object):
         m["rhoinvrho"] = m["rho"] * m["invrho"]
         m["Qij"] = np.dot(m['ry'], m["rhoinvrho"])
         m["Qi"] = np.einsum('ki,ki->i', m["rhoinvrho"], m["Qij"])
+        #m["Qi-Si^2"] = np.einsum('ki,ki->i', m["rhoinvrho"], m["Qij"])
         m["Si"] = np.sum(m["rho"] * m["rhoinvrho"], axis=0)
 
         # This is the objective, a lower bound for TC
@@ -279,16 +280,8 @@ class Corex(object):
         grad += np.dot(H, self.ws)
         sig_grad = self._sig(x, grad)
         Bj = np.sum(m["rho"] * grad, axis=1, keepdims=True)
-        gamma_hess_grad = rj * (grad - 2. * self.ws / (2 - rj) * Bj)
-
-        # TEST 1: Check if we our quasi-newton step is a descent direction
-        # If not, use the gradient (in rho), which is guaranteed to be (even for w)
-        d1 = np.einsum('ji,ji', sig_grad, -gamma_hess_grad)
-        if d1 < 0:
-            update = - gamma_hess_grad
-        else:
-            update = - grad
-            print 'Warning: grad update used', d1  # TODO: Eliminate, unnecessary? (i.e. hess grad already psd?)
+        update = - rj * (grad - 2. * self.ws / (2 - rj) * Bj)  # Gamma Hess^-1 Grad
+        update = np.where(rj < 1e-3, 0, update)
 
         backtrack = True
         eta = 1.
