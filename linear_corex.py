@@ -7,6 +7,7 @@ Code below written by:
 Greg Ver Steeg (gregv@isi.edu), 2016.
 """
 
+from __future__ import print_function
 import numpy as np
 from scipy.stats import norm, rankdata
 import gc
@@ -288,7 +289,7 @@ class Corex(object):
         while backtrack:
             if eta < 10 * self.tol:
                 if self.verbose:
-                    print 'Warning: step size becoming too small'
+                    print('Warning: step size becoming too small')
                 break
             w_update = self.ws + eta * update
             m_update = self._calculate_moments_ns(x, w_update, quick=True)

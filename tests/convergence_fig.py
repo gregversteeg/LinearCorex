@@ -1,3 +1,4 @@
+from __future__ import print_function
 import matplotlib.pyplot as plt  
 import numpy as np
 import sys
@@ -51,36 +52,36 @@ np.random.seed(seed)
 x, z = gen_data_cap(n_sources=1, k=10, n_samples=N, capacity=C) # , noise=0.1)
 out = lc.Corex(n_hidden=1, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
 errs.append(relative_error(out.history['TC']))
-print np.max(np.abs(out.ws))
-print 'TC', out.tc
+print(np.max(np.abs(out.ws)))
+print('TC', out.tc)
 
 np.random.seed(seed)
 x, z = gen_data_cap(n_sources=10, k=100, n_samples=N, capacity=C) #, noise=10)
 out = lc.Corex(n_hidden=10, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
 errs.append(relative_error(out.history['TC']))
-print np.max(np.abs(out.ws))
-print 'TC', out.tc
+print(np.max(np.abs(out.ws)))
+print('TC', out.tc)
 
 np.random.seed(seed)
 out = lc.Corex(n_hidden=10, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(np.random.randn(N,1000))
 errs.append(relative_error(out.history['TC']))
-print np.max(np.abs(out.ws))
-print 'TC', out.tc
+print(np.max(np.abs(out.ws)))
+print('TC', out.tc)
 
 np.random.seed(seed)
 x, z = gen_data_cap(n_sources=50, k=10, n_samples=100, capacity=C) # , noise=100)
 out = lc.Corex(n_hidden=50, verbose=True, max_iter=max_iter, tol=tol, seed=seed, anneal=False, gpu=gpu, eliminate_synergy=eliminate_synergy).fit(x)
 errs.append(relative_error(out.history['TC']))
-print np.max(np.abs(out.ws))
-print 'TC', out.tc
+print(np.max(np.abs(out.ws)))
+print('TC', out.tc)
 
 if big:
     np.random.seed(seed)
     x, z = gen_data_cap(n_sources=100, k=10, n_samples=100, capacity=C) # , noise=100)
     out = lc.Corex(n_hidden=100, verbose=True, max_iter=max_iter, tol=tol, seed=seed,gpu=gpu).fit(x)
     errs.append(relative_error(out.history['TC']))
-    print np.max(np.abs(out.ws))
-    print 'TC', out.tc
+    print(np.max(np.abs(out.ws)))
+    print('TC', out.tc)
 
 # These are the "Tableau 20" colors as RGB.    
 tableau20 = [(31, 119, 180), (255, 127, 14),     

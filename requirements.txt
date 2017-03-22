@@ -1,0 +1,5 @@
+numpy
+scipy>=0.15.0
+matplotlib
+scikit-learn>=0.17.0
+networkx>=1.10

@@ -3,6 +3,7 @@ Test that the analytic expressions for derivatives and diagonal Hessian terms ar
 numerical estimates.
 """
 
+from __future__ import print_function
 import numpy as np
 import sys
 sys.path.append('..')
@@ -53,10 +54,10 @@ def test_first_derivative():
     x, z = gen_data_cap(n_sources=10, k=5, n_samples=N, capacity=C)
     # x = np.random.random((50, 100))
     out = lc.Corex(n_hidden=10, verbose=True, max_iter=max_iter, seed=seed, gpu=gpu).fit(x)
-    print 'TC', out.tc
+    print('TC', out.tc)
     x = out.preprocess(x, fit=False)
     M = np.cov(x.T)
-    print M, M.shape
+    print(M, M.shape)
 
     # 1 / 1 + Si
     def f(z):
@@ -290,7 +291,7 @@ def animate_objective():
     x, z = gen_data_cap(n_sources=10, k=5, n_samples=1000, capacity=20)
     # x = np.random.random((50, 100))
     out = lc.Corex(n_hidden=10, verbose=True, max_iter=1, seed=1, gpu=False).fit(x)
-    print 'TC', out.tc
+    print('TC', out.tc)
     xp = out.preprocess(x, fit=False)
     M = np.cov(xp.T)
 
@@ -345,7 +346,7 @@ def animate_objective():
     yj = 6
     def animate(j):
         out.fit(x)
-        print np.argmax(np.abs(out.ws[:,0]))
+        print(np.argmax(np.abs(out.ws[:,0])))
         fs = np.array([f(out, xl, yj) for xl in xs])
         artist1.set_data(xs, fs / 50.)
         artist2.set_data(xs, [fp(out, xl, yj) for xl in xs])
