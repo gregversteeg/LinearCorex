@@ -39,3 +39,13 @@ you should impute missing values manually (as the mean within each column).
 See [Sifting Common Info...](https://arxiv.org/abs/1606.02307) and 
 [Maximally informative representations...](https://arxiv.org/abs/1410.7404) for work building up to this method. 
 The theory behind this is not available yet. 
+
+### Troubleshooting visualization
+To get the visualization of the hierarchy looking nice sometimes takes a little effort. To get graphs to compile correctly do the following. 
+Using "brew" to install, you need to do "brew install gts" followed by "brew install --with-gts graphviz". 
+The (hacky) way that the visualizations are produced is the following. The code, vis_corex.py, produces a text file called "graphs/graph.dot". This just encodes the edges between nodes in dot format. Then, the code calls a command line utility called sfdp that is part of graphviz, "sfdp graph.dot -Tpdf -Earrowhead=none -Nfontsize=12  -GK=2 -Gmaxiter=1000 -Goverlap=False -Gpack=True -Gpackmode=clust -Gsep=0.01 -Gsplines=False -o graph_sfdp.pdf".
+These dot files can also be opened with OmniGraffle if you would like to be able to manipulate them by hand. 
+If you want, you can try to recompile graphs yourself with different options to make them look nicer. Or you can edit the dot files to get effects like colored nodes, etc. 
+
+
+
