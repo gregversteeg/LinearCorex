@@ -13,7 +13,7 @@ import gc
 try:
     import cudamat as cm
     GPU_SUPPORT = True
-except ImportError:
+except:
     print("Install CUDA and cudamat (for python) to enable GPU speedups.")
     GPU_SUPPORT = False
 
