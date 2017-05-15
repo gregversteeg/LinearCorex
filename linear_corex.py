@@ -66,7 +66,7 @@ class Corex(object):
     [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation [tbd]" [In progress]
     """
 
-    def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, anneal=True, missing_values=np.nan,
+    def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, anneal=True, missing_values=None,
                  eliminate_synergy=True, gaussianize='standard', gpu=GPU_SUPPORT,
                  verbose=False, seed=None):
         self.m = n_hidden  # Number of latent factors to learn
@@ -91,7 +91,7 @@ class Corex(object):
 
         # Initialize these when we fit on data
         self.n_samples, self.nv = 0, 0  # Number of samples/variables in input data
-        self.ws = np.zeros((self.m, self.nv))  # m by nv array of weights
+        self.ws = np.zeros((0, 0))  # m by nv array of weights
         self.moments = {}  # Dictionary of moments
         self.theta = None  # Parameters for preprocessing each variable
         self.history = {}  # Keep track of values for each iteration
@@ -104,6 +104,8 @@ class Corex(object):
     def fit(self, x):
         x = self.preprocess(x, fit=True)  # Fit a transform for each marginal
         self.n_samples, self.nv = x.shape  # Number of samples, variables in input data
+        if self.m is None:
+            self.m = pick_n_hidden(x)
         anneal_schedule = [0.]
         if self.ws.size == 0:  # Randomly initialize weights if not already set
             if self.eliminate_synergy:
@@ -132,9 +134,12 @@ class Corex(object):
                     self.ws, self.moments = self._update_syn(x, eta=0.1)  # Older method that allows synergies
 
                 # assert np.isfinite(self.tc), "Error: TC is no longer finite: {}".format(self.tc)
-                if not np.isfinite(self.tc):
-                    print("Error: TC is no longer finite: {}".format(self.tc))
-                    return self
+                if not self.moments or not np.isfinite(self.tc):
+                    try:
+                        print("Error: TC is no longer finite: {}".format(self.tc))
+                    except:
+                        print("Error... updates giving invalid solutions?")
+                        return self
                 delta = np.abs(self.tc - last_tc)
                 self.update_records(self.moments, delta)  # Book-keeping
                 if delta < self.tol:  # Check for convergence
@@ -174,6 +179,9 @@ class Corex(object):
     def mis(self):
         return - 0.5 * np.log1p(-self.moments["rho"]**2)
 
+    def clusters(self):
+        return np.argmax(np.abs(self.ws), axis=0)
+
     def _sig(self, x, u):
         """Multiple the matrix u by the covariance matrix of x. We are interested in situations where
         n_variables >> n_samples, so we do this without explicitly constructing the covariance matrix."""
@@ -190,8 +198,8 @@ class Corex(object):
         else:
             y = x.dot(u.T)
             tmp_dot = x.T.dot(y)
-        prod = np.sqrt(1 - self.eps**2) * tmp_dot / self.n_samples + self.eps**2 * u.T  # nv by m,  <X_i Y_j> / std Y_j
-        return prod.T
+        prod = np.sqrt(1 - self.eps**2) * tmp_dot.T / self.n_samples + self.eps**2 * u  # nv by m,  <X_i Y_j> / std Y_j
+        return prod
 
     def _norm(self, x, ws):
         """Calculate uj so that we can normalize it."""
@@ -227,7 +235,7 @@ class Corex(object):
         else:
             y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically  TODO: why does this casting speed convergence in fig_convergence? Is it a poor man's way of introducing a little noise?
             tmp_sum = np.einsum('lj,lj->j', y, y)
-        m["uj"] = (1 - self.eps**2) * tmp_sum / self.n_samples + self.eps**2 * np.sum(ws**2, axis=1)
+        m["uj"] = (1 - self.eps**2) * tmp_sum / self.n_obs + self.eps**2 * np.sum(ws**2, axis=1)
         # print((len(m["uj"]) * ' {:10f} ').format(*m["uj"]))
         if quick and np.max(m["uj"]) >= 1.:
             return False
@@ -260,10 +268,10 @@ class Corex(object):
             m["X_i Y_j"] = m["rho"].T * np.sqrt(m["Y_j^2"])
             m["X_i Z_j"] = np.linalg.solve(m["ry"], m["rho"]).T
             m["X_i^2 | Y"] = (1. - np.einsum('ij,ji->i', m["X_i Z_j"], m["rho"])).clip(1e-6)
-            mi_yj_x = 0.5 * np.log(m["Y_j^2"]) - 0.5 * np.log(self.yscale ** 2)
-            mi_xi_y = - 0.5 * np.log(m["X_i^2 | Y"])
-            m["TCs"] = m["MI"].sum(axis=1) - mi_yj_x
-            m["additivity"] = (m["MI"].sum(axis=0) - mi_xi_y).sum()
+            m['I(Y_j ; X)'] = 0.5 * np.log(m["Y_j^2"]) - 0.5 * np.log(self.yscale ** 2)
+            m['I(X_i ; Y)'] = - 0.5 * np.log(m["X_i^2 | Y"])
+            m["TCs"] = m["MI"].sum(axis=1) - m['I(Y_j ; X)']
+            m["additivity"] = (m["MI"].sum(axis=0) - m['I(X_i ; Y)']).sum()
         return m
 
     def _update_ns(self, x):
@@ -281,12 +289,12 @@ class Corex(object):
         sig_grad = self._sig(x, grad)
         Bj = np.sum(m["rho"] * grad, axis=1, keepdims=True)
         update = - rj * (grad - 2. * self.ws / (2 - rj) * Bj)  # Gamma Hess^-1 Grad
-        update = np.where(rj < 1e-3, 0, update)
+        update = np.where(rj < 1e-6, 0, update)
 
         backtrack = True
         eta = 1.
         while backtrack:
-            if eta < 10 * self.tol:
+            if eta < min(self.tol, 1e-10):
                 if self.verbose:
                     print 'Warning: step size becoming too small'
                 break
@@ -373,11 +381,17 @@ class Corex(object):
         'empirical' does an empirical gaussianization (but this cannot be inverted).
         'outliers' tries to squeeze in the outliers
         Any other choice will skip the transformation."""
-        x = random_impute(x, self.missing_values)  # Creates a copy
-        if self.gaussianize == 'standard':
+        if self.missing_values is not None:
+            x, self.n_obs = mean_impute(x, self.missing_values)  # Creates a copy
+        else:
+            self.n_obs = len(x)
+        if self.gaussianize == 'none':
+            pass
+        elif self.gaussianize == 'standard':
             if fit:
                 mean = np.mean(x, axis=0)
-                std = np.std(x, axis=0, ddof=0).clip(1e-10)
+                # std = np.std(x, axis=0, ddof=0).clip(1e-10)
+                std = np.sqrt(np.sum((x - mean)**2, axis=0) / self.n_obs).clip(1e-10)
                 self.theta = (mean, std)
             x = ((x - self.theta[0]) / self.theta[1])
             if np.max(np.abs(x)) > 6 and self.verbose:
@@ -417,7 +431,7 @@ class Corex(object):
         np.fill_diagonal(cov, 1)
         return cov
 
-    def estimate_covariance(self):
+    def get_covariance(self):
         # TODO: This assumes no nonlinear scaling. Could we get it if we had nonlinear transforms?
         # TODO: What is sigma Y? We could calculate this hierarchically. We assume here TC(Y)=0, as would be at global opt.
         # This uses E(Xi|Y) formula for non-synergistic relationships
@@ -427,11 +441,26 @@ class Corex(object):
             cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
             cov /= (1. - self.eps**2)
             np.fill_diagonal(cov, 1)
-            return cov
+            return self.theta[1][:, np.newaxis] * self.theta[1] * cov
         else:
             cov = np.einsum('ij,kj->ik', m["X_i Z_j"], m["X_i Y_j"])
             np.fill_diagonal(cov, 1)
-            return cov
+            return self.theta[1][:, np.newaxis] * self.theta[1] * cov
+
+    def get_precision(self):
+        # TODO: This assumes no nonlinear scaling. Could we get it if we had nonlinear transforms?
+        # TODO: What is sigma Y? We could calculate this hierarchically. We assume here TC(Y)=0, as would be at global opt.
+        # This uses E(Xi|Y) formula for non-synergistic relationships
+        m = self.moments
+        if self.eliminate_synergy:
+            z = m['rhoinvrho'] / (1 + m['Si'])
+            #cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
+            v = z / (1. - z**2)
+            q = 1. + np.dot(v, z)
+            prec = np.diag(1. / (1. - z**2)) - np.dot(v.T, v) / q
+            return prec / self.theta[1][:, np.newaxis] / self.theta[1]
+        else:
+            raise NotImplementedError
 
     def estimate_covariance_h(self, x, m2=1):
         layer2 = Corex(n_hidden=m2, eliminate_synergy=True, gpu=self.gpu, verbose=self.verbose)
@@ -447,6 +476,22 @@ class Corex(object):
         return cov
 
 
+def pick_n_hidden(data):
+    """A helper function to pick the number of hidden factors / clusters to use."""
+    # TODO: Finish
+    scores = []
+    n = 1
+    while True:
+        out = Corex(n_hidden=n, max_iter=1000, tol=1e-3, gpu=False).fit(data)
+        m = out.moments
+        score = np.sum(m["MI"]) - np.sum(m['I(Y_j ; X)'])
+        scores.append((score, n))
+        if score < max(scores)[0]:
+            break
+        n += 1
+    return max(scores)[1]
+
+
 def g(x, t=4):
     """A transformation that suppresses outliers for a standard normal."""
     xp = np.clip(x, -t, t)
@@ -459,6 +504,22 @@ def g_inv(x, t=4):
     xp = np.clip(x, -t, t)
     diff = np.arctanh(np.clip(x - xp, -1 + 1e-10, 1 - 1e-10))
     return xp + diff
+
+
+def mean_impute(x, v):
+    """Missing values in the data, x, are indicated by v. Wherever this value appears in x, it is replaced by the
+    mean value taken from the marginal distribution of that column."""
+    if not np.isnan(v):
+        x = np.where(x == v, np.nan, x)
+    x_new = []
+    n_obs = []
+    for i, xi in enumerate(x.T):
+        missing_locs = np.where(np.isnan(xi))[0]
+        xi_nm = xi[np.isfinite(xi)]
+        xi[missing_locs] = np.mean(xi_nm)
+        x_new.append(xi)
+        n_obs.append(len(xi_nm))
+    return np.array(x_new).T, np.array(n_obs)
 
 
 def random_impute(x, v):
