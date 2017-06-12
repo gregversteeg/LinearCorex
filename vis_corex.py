@@ -9,6 +9,7 @@ import pylab
 import networkx as nx
 import matplotlib.pyplot as plt
 import codecs
+import seaborn as sns
 
 # These are the "Tableau 20" colors as RGB.
 tableau20 = [(31, 119, 180), (255, 127, 14),
@@ -47,6 +48,7 @@ def vis_rep(corex, data, row_label=None, column_label=None, prefix='corex_output
         plot_convergence(corex.history, prefix=prefix)
 
     print 'Pairwise plots among high TC variables in "relationships"'
+    plot_heatmaps(data, corex.mis, column_label, corex.transform(data), prefix=prefix)
     plot_top_relationships(data, corex, labels, column_label, prefix=prefix)
 
 
@@ -116,6 +118,31 @@ def plot_convergence(history, prefix='', prefix2=''):
     plt.savefig(filename, bbox_inches="tight")
     plt.close('all')
     return True
+
+
+
+def plot_heatmaps(data, mis, column_label, cont, topk=10, prefix=''):
+    cmap = sns.cubehelix_palette(as_cmap=True, light=.9)
+    m, nv = mis.shape
+    for j in range(m):
+        inds = np.argsort(- mis[j, :])[:topk]
+        if len(inds) >= 2:
+            plt.clf()
+            order = np.argsort(cont[:,j])
+            subdata = data[:, inds][order].T
+            subdata -= np.nanmean(subdata, axis=1, keepdims=True)
+            subdata /= np.nanstd(subdata, axis=1, keepdims=True)
+            columns = [column_label[i] for i in inds]
+            sns.heatmap(subdata, vmin=-3, vmax=3, cmap=cmap, yticklabels=columns, xticklabels=False, mask=np.isnan(subdata))
+            filename = '{}/heatmaps/group_num={}.png'.format(prefix, j)
+            if not os.path.exists(os.path.dirname(filename)):
+                os.makedirs(os.path.dirname(filename))
+            plt.title("Latent factor {}".format(j))
+            plt.yticks(rotation=0)
+            plt.savefig(filename, bbox_inches='tight')
+            plt.close('all')
+            #plot_rels(data[:, inds], map(lambda q: column_label[q], inds), colors=cont[:, j],
+            #          outfile=prefix + '/relationships/group_num=' + str(j), latent=labels[:, j], alpha=0.1)
 
 
 def plot_top_relationships(data, corex, labels, column_label, topk=5, prefix=''):

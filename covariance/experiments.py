@@ -12,13 +12,13 @@ plot_cov([('True covariance', np.eye(50)), ('Data', x), ('Empirical covariance',
 
 
 # EXPERIMENT 1:
-p = 64
-m = 8  # Number of sources to use for generating data
+p = 256
+m = 64  # Number of sources to use for generating data
 eps = 0.
-capacity = 6
+capacity = 8
 exp_prefix = '{}p={}_m={}_eps={}_c={}'.format(prefix, p, m, eps, capacity)
 
-k_min, k_max = 3, int(np.log2(p)) + 3  # Use between 2**kmin and 2**k_max samples for train or test
+k_min, k_max = 3, int(np.log2(p)) + 2  # Use between 2**kmin and 2**k_max samples for train or test
 ns = [2**k for k in range(k_min, k_max + 1)]
 n_max = 2 * 2**k_max  # First half for training, second half for testing
 x, true_cov = gen_data_cap(p=p, n_samples=n_max, n_sources=m, correlate_sources=eps, capacity=capacity)

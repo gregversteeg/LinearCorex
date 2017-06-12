@@ -2,9 +2,10 @@
 Recovers linear latent factors from data, like PCA/ICA/FA, etc. except that
 these factors are maximally informative about relationships in the data.
 We also constrain our solutions to be "non-synergistic" for better interpretability.
+(That is the TC(Y|Xi)=0 constraint in the "blessing of dimensionality" paper.)
 
 Code below written by:
-Greg Ver Steeg (gregv@isi.edu), 2016.
+Greg Ver Steeg (gregv@isi.edu), 2017.
 """
 
 import numpy as np
@@ -62,12 +63,14 @@ class Corex(object):
     References
     ----------
     [1] Greg Ver Steeg and Aram Galstyan. "Maximally Informative Hierarchical...", AISTATS 2015.
-    [2] Greg Ver Steeg, Shuyang Gao, Kyle Reing, and Aram Galstyan. "Sifting Common Information from Many Variables"
-    [3] Greg Ver Steeg, ?, and Aram Galstyan. "Linear Total Correlation Explanation [tbd]" [In progress]
+    [2] Greg Ver Steeg, Shuyang Gao, Kyle Reing, and Aram Galstyan. "Sifting Common Information from Many Variables",
+                                                                    IJCAI 2017.
+    [3] Greg Ver Steeg and Aram Galstyan. "Low Complexity Gaussian Latent Factor Models and
+                                           a Blessing of Dimensionality", 2017.
     """
 
-    def __init__(self, n_hidden=2, max_iter=10000, tol=1e-5, anneal=True, missing_values=None,
-                 eliminate_synergy=True, gaussianize='standard', gpu=GPU_SUPPORT,
+    def __init__(self, n_hidden=10, max_iter=10000, tol=1e-5, anneal=True, missing_values=None,
+                 eliminate_synergy=True, gaussianize='standard', gpu=False,
                  verbose=False, seed=None):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
@@ -102,6 +105,7 @@ class Corex(object):
         return self.transform(x)
 
     def fit(self, x):
+        x = np.asarray(x, dtype=np.float32)
         x = self.preprocess(x, fit=True)  # Fit a transform for each marginal
         self.n_samples, self.nv = x.shape  # Number of samples, variables in input data
         if self.m is None:
@@ -109,7 +113,7 @@ class Corex(object):
         anneal_schedule = [0.]
         if self.ws.size == 0:  # Randomly initialize weights if not already set
             if self.eliminate_synergy:
-                self.ws = np.random.randn(self.m, self.nv)
+                self.ws = np.random.randn(self.m, self.nv).astype(np.float32)
                 self.ws /= (10. * self._norm(x, self.ws))[:, np.newaxis]  # TODO: test good IC
                 if self.anneal:
                     anneal_schedule = [0.6**k for k in range(1, 7)] + [0]
@@ -233,10 +237,9 @@ class Corex(object):
             del wc
             tmp_sum = np.einsum('lj,lj->j', y.asarray(), y.asarray())  # TODO: Should be able to do on gpu...
         else:
-            y = np.float32(x.dot(ws.T))  # + noise / sqrt Y_j^2, but it is included analytically  TODO: why does this casting speed convergence in fig_convergence? Is it a poor man's way of introducing a little noise?
+            y = x.dot(ws.T)
             tmp_sum = np.einsum('lj,lj->j', y, y)
-        m["uj"] = (1 - self.eps**2) * tmp_sum / self.n_obs + self.eps**2 * np.sum(ws**2, axis=1)
-        # print((len(m["uj"]) * ' {:10f} ').format(*m["uj"]))
+        m["uj"] = (1 - self.eps**2) * tmp_sum / self.n_samples + self.eps**2 * np.sum(ws**2, axis=1)
         if quick and np.max(m["uj"]) >= 1.:
             return False
         if self.gpu:
@@ -277,8 +280,7 @@ class Corex(object):
     def _update_ns(self, x):
         """Perform one update of the weights and re-calculate moments in the NON-SYNERGISTIC case."""
         m = self.moments
-        syi = 1. / np.sqrt(m["Y_j^2"])[:, np.newaxis]
-        rj = self.yscale ** 2 * syi ** 2  # (1-rhoT_j Gamma rho_j)
+        rj = 1. - m["uj"][:, np.newaxis]
         H = np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
         np.fill_diagonal(H, 0)
         grad = self.ws / rj
@@ -293,6 +295,7 @@ class Corex(object):
 
         backtrack = True
         eta = 1.
+        update_tangent = np.einsum('ji,ji', sig_grad, update)
         while backtrack:
             if eta < min(self.tol, 1e-10):
                 if self.verbose:
@@ -300,13 +303,13 @@ class Corex(object):
                 break
             w_update = self.ws + eta * update
             m_update = self._calculate_moments_ns(x, w_update, quick=True)
-            if not m_update:  # TEST 2: Make sure rho is a valid solution, if not m_update will be False
+            if not m_update:  # TEST 1: Make sure rho is a valid solution, if not m_update will return False
                 eta *= 0.5
                 if self.verbose > 1:
                     print('back:{:.7f}'.format(eta))
                 continue
-            wolfe1 = -m_update['TC'] <= -m['TC'] + 0.1 * eta * np.einsum('ji,ji', sig_grad, update)
-            if not wolfe1:  # TEST 3: the first wolfe condition (sufficient decrease)
+            wolfe1 = -m_update['TC'] <= -m['TC'] + 0.1 * eta * update_tangent
+            if not wolfe1:  # TEST 2: the first wolfe condition (sufficient decrease)
                 eta *= 0.5
                 if self.verbose > 1:
                     print('wolfe1:{:.7f}'.format(eta))
@@ -421,24 +424,12 @@ class Corex(object):
     def predict(self, y):
         return self.invert(np.dot(self.moments["X_i Z_j"], y.T).T)
 
-    def estimate_covariance2(self):
-        # This uses empirical covariance for Y
-        # TODO: We could estimate covariance of Y using a hierarchy of corex models!
-        m = self.moments
-        z = m['rhoinvrho'] / (1 + m['Si'])
-        cov = np.dot(z.T, np.dot(m["ry"], z))
-        cov /= (1. - self.eps**2)
-        np.fill_diagonal(cov, 1)
-        return cov
-
     def get_covariance(self):
-        # TODO: This assumes no nonlinear scaling. Could we get it if we had nonlinear transforms?
-        # TODO: What is sigma Y? We could calculate this hierarchically. We assume here TC(Y)=0, as would be at global opt.
         # This uses E(Xi|Y) formula for non-synergistic relationships
         m = self.moments
         if self.eliminate_synergy:
             z = m['rhoinvrho'] / (1 + m['Si'])
-            cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
+            cov = np.dot(z.T, z)
             cov /= (1. - self.eps**2)
             np.fill_diagonal(cov, 1)
             return self.theta[1][:, np.newaxis] * self.theta[1] * cov
@@ -447,38 +438,10 @@ class Corex(object):
             np.fill_diagonal(cov, 1)
             return self.theta[1][:, np.newaxis] * self.theta[1] * cov
 
-    def get_precision(self):
-        # TODO: This assumes no nonlinear scaling. Could we get it if we had nonlinear transforms?
-        # TODO: What is sigma Y? We could calculate this hierarchically. We assume here TC(Y)=0, as would be at global opt.
-        # This uses E(Xi|Y) formula for non-synergistic relationships
-        m = self.moments
-        if self.eliminate_synergy:
-            z = m['rhoinvrho'] / (1 + m['Si'])
-            #cov = np.dot(z.T, z)  # np.dot(z.T, np.dot(m["ry"], z))
-            v = z / (1. - z**2)
-            q = 1. + np.dot(v, z)
-            prec = np.diag(1. / (1. - z**2)) - np.dot(v.T, v) / q
-            return prec / self.theta[1][:, np.newaxis] / self.theta[1]
-        else:
-            raise NotImplementedError
-
-    def estimate_covariance_h(self, x, m2=1):
-        layer2 = Corex(n_hidden=m2, eliminate_synergy=True, gpu=self.gpu, verbose=self.verbose)
-        x = self.preprocess(x, fit=False)
-        y = self.transform(x)
-        layer2.fit(y)
-        ry = layer2.estimate_covariance()
-        m = self.moments
-        z = m['rhoinvrho'] / (1 + m['Si'])
-        cov = np.dot(z.T, np.dot(ry, z))
-        cov /= (1. - self.eps**2)
-        np.fill_diagonal(cov, 1)
-        return cov
-
 
 def pick_n_hidden(data):
     """A helper function to pick the number of hidden factors / clusters to use."""
-    # TODO: Finish
+    # TODO: Use an efficient search strategy
     scores = []
     n = 1
     while True:

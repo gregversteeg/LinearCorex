@@ -1,7 +1,9 @@
 # Linear Total Correlation Explanation (CorEx)
 
-What are the linear functions of the data that explain as much of the dependence as possible? This code implements
-a fixed point iteration scheme that gives a solution to this problem. 
+Linear CorEx finds latent factors that are as informative as possible about relationships in the data. 
+The approach is described in this paper:
+[Low Complexity Gaussian Latent Factor Models and a Blessing of Dimensionality](https://arxiv.org/abs/1706.) 
+This is useful for covariance estimation, clustering related variables, and dimensionality reduction. 
 
 Previous versions of CorEx worked for discrete data, and could be applied to continuous data with some hacks. 
 This is the first truly continuous version of CorEx. While this extension required assumptions of linearity, the 
@@ -12,7 +14,7 @@ Instead of lower bounding TC_L(X;Y) as we do for discrete CorEx,
 we are able to optimize it exactly in the linear case. It turns out that the optima of this objective 
 may have an undesirable property: information about the X_i's can be stored "synergistically" in the latent factors. 
 In other words, to predict a single variable you need to combine info from all the latent factors. Therefore, we 
-add a constraint that the solutions should be non-synergistic (latent factors are individually informatitve about each variable X_i). 
+add a constraint that the solutions should be non-synergistic (latent factors are individually informative about each variable X_i). 
 This also recovers the property of the original lower bound formulation from AISTATS that each latent factor
 has a non-negative added contribution towards TC. (And it helps recover/surpass the results of the information sieve.) 
 
@@ -31,14 +33,15 @@ python vis_corex.py tests/data/matrix.tcga_ov.geneset1.log2.varnorm.RPKM.txt --l
 ```
 Each of these examples generates pairwise plots of relationships and a graph. 
 
-Note that missing values are imputed in vis_sieve beforehand. If you are using the python API,
-you should impute missing values manually (as the mean within each column). 
+Missing values can be specified, but are just imputed in a naive way. 
 
 ## Papers
 
 See [Sifting Common Info...](https://arxiv.org/abs/1606.02307) and 
 [Maximally informative representations...](https://arxiv.org/abs/1410.7404) for work building up to this method. 
-The theory behind this is not available yet. 
+The main paper describing the method is [Low Complexity Gaussian Latent Factor Models and a Blessing of Dimensionality](https://arxiv.org/abs/1706.)
+The connections with the idea of "synergy" will be described in future work. 
+
 
 ### Troubleshooting visualization
 To get the visualization of the hierarchy looking nice sometimes takes a little effort. To get graphs to compile correctly do the following. 

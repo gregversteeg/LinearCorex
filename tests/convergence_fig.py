@@ -38,13 +38,13 @@ def relative_error(tc_history):
 seed = 1
 errs = []
 max_iter = 10**4
-tol = 1e-8
+tol = 1e-9
 N = 500
 gpu = False
 C = 1
-big = False
+big = True
 if big:
-    max_iter = 10**5
+    max_iter = 10**4
 eliminate_synergy = True
 
 np.random.seed(seed)
@@ -76,8 +76,8 @@ print 'TC', out.tc
 
 if big:
     np.random.seed(seed)
-    x, z = gen_data_cap(n_sources=100, k=10, n_samples=100, capacity=C) # , noise=100)
-    out = lc.Corex(n_hidden=100, verbose=True, max_iter=max_iter, tol=tol, seed=seed,gpu=gpu).fit(x)
+    x, z = gen_data_cap(n_sources=100, k=20, n_samples=100, capacity=C) # , noise=100)
+    out = lc.Corex(n_hidden=100, verbose=True, max_iter=max_iter, anneal=False, tol=tol, eliminate_synergy=eliminate_synergy, seed=seed,gpu=gpu).fit(x)
     errs.append(relative_error(out.history['TC']))
     print np.max(np.abs(out.ws))
     print 'TC', out.tc
@@ -102,10 +102,10 @@ ax.spines["left"].set_visible(False)
 ax.get_xaxis().tick_bottom()    
 ax.get_yaxis().tick_left()    
 
-y0, y1, dy = np.log10(tol) + 2, 0, 1
+y0, y1, dy = -5, 0, 1
 n = len(out.history['TC']) - 1
 #x0, x1, dx = np.log10(1), np.log10(n), 0.5
-x0, x1, dx = 1, np.log10(max_iter), 1
+x0, x1, dx = 0, 1600, 500
 
 plt.ylim(y0, y1)    
 plt.xlim(x0, x1)  
@@ -114,14 +114,14 @@ plt.xlim(x0, x1)
 # You don't want your viewers squinting to read your plot.    
 plt.yticks(np.arange(y0+1, y1, dy), ['$10^{%d}$' % x for x in np.arange(y0 + 1, y1, dy)], fontsize=16)
 #plt.xticks(np.log10(np.arange(1, n+1, 3)), ['%d'%x for x in np.arange(1, n+1, 3)], fontsize=14)    
-plt.xticks(np.arange(x0, x1+1, dx), ['$10^{%d}$' % x for x in np.arange(x0, x1+1, dx)], fontsize=16)
+plt.xticks(np.arange(x0, x1+1, dx), ['$%d$' % x for x in np.arange(x0, x1+1, dx)], fontsize=16)
 plt.ylabel('Relative Error', fontsize=18, fontweight='bold')
 plt.xlabel('# Iterations', fontsize=18, fontweight='bold')
 
 for y in np.arange(y0+1, y1, dy):    
     plt.plot([x0, x1], [y, y], "--", lw=0.5, color="black", alpha=0.3)    
 
-for x in np.arange(x0, x1+1):
+for x in np.arange(x0, x1, dx):
     plt.plot([x,x], [y0, y1], "--", lw=0.5, color="black", alpha=0.3)    
 
 # Remove the tick marks; they are unnecessary with the tick lines we just plotted.    
@@ -129,10 +129,10 @@ plt.tick_params(axis="both", which="both", bottom="off", top="off",
                 labelbottom="on", left="off", right="off", labelleft="on")  
 
 #plt.plot(np.log10(1 + np.arange(len(err))), np.log10(err), 'o-', lw=2.5, color=tableau20[0]) 
-pos = [(55, -5), (152, -4), (205, -3), (600, -2), (600, 0), (700,-1)]
-labels = ["m=1, k=10", "m=10, k=100", 'ind (m=10)', "m=50, k=10", 'm=100']
+pos = [(55, -4.5), (152, -3.5), (205, -2.5), (400, -1.5), (800, -2.1), (700,-1)]
+labels = ["m=1, k=10", "m=10, k=100", 'ind (m=10)', "m=50, k=10", 'm=100, k=20']
 for j, err in enumerate(errs):
-  plt.plot(np.log10(np.arange(1, 1 + len(err))), np.log10(np.abs(err)), '-', lw=2.5, color=tableau20[j])
-  plt.text(np.log10(pos[j][0]), pos[j][1], labels[j], fontsize=18,fontweight='bold', color=tableau20[j])
+  plt.plot(np.arange(1, 1 + len(err)), np.log10(np.abs(err)), '-', lw=2.5, color=tableau20[j])
+  plt.text(pos[j][0], pos[j][1], labels[j], fontsize=18,fontweight='bold', color=tableau20[j])
 
 plt.savefig("figs/convergence.pdf", bbox_inches="tight")
