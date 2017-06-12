@@ -416,7 +416,7 @@ if __name__ == '__main__':
     # Command line interface
     # Sample commands:
     # python vis_corex.py tests/test_data.csv
-    import linear_corex as lc
+    import linearcorex as lc
     from time import time
     import csv
     import sys
