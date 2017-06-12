@@ -17,8 +17,7 @@ We are minimizing TC(X|Y) + TC(Y) where TC is the "total correlation" or multiva
 is optimized when X's are independent after conditioning on Y's, and the Y's themselves are independent. 
 Instead of heuristically upper bounding this objective as we do for discrete CorEx, 
 we are able to optimize it exactly in the linear case. 
-Previous versions of CorEx worked for discrete data, and could be applied to continuous data with some hacks. 
-This is the first truly continuous version of CorEx. While this extension required assumptions of linearity, the 
+While this extension required assumptions of linearity, the 
 advantage is that the code is pretty fast since it only relies on matrix algebra. In principle it could be 
 further accelerated using GPUs. 
 
