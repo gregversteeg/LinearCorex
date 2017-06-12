@@ -43,7 +43,7 @@ python vis_corex.py ../tests/data/matrix.tcga_ov.geneset1.log2.varnorm.RPKM.txt 
 Each of these examples generates pairwise plots of relationships and a graph. 
 
 The python API uses the sklearn conventions of fit/transform.  
-```
+```python
 import linearcorex as lc
 import numpy as np
 
