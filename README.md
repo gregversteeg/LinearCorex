@@ -6,24 +6,27 @@ The approach is described in this paper:
 This is useful for covariance estimation, clustering related variables, and dimensionality reduction, especially 
 in the high-dimensional, under-sampled regime. 
 
+Mathematically, the objective is to find factors, y, where y = W x and  
+x in R^n is the data and W is an m by n weight matrix. 
+We are minimizing TC(X|Y) + TC(Y) where TC is the "total correlation" or multivariate mutual information. This objective
+is optimized when X's are independent after conditioning on Y's, and the Y's themselves are independent. 
+Instead of heuristically upper bounding this objective as we do for discrete CorEx, 
+we are able to optimize it exactly in the linear case. 
 Previous versions of CorEx worked for discrete data, and could be applied to continuous data with some hacks. 
 This is the first truly continuous version of CorEx. While this extension required assumptions of linearity, the 
 advantage is that the code is pretty fast since it only relies on matrix algebra. In principle it could be 
 further accelerated using GPUs. 
 
-Instead of lower bounding TC_L(X;Y) as we do for discrete CorEx, 
-we are able to optimize it exactly in the linear case. It turns out that the optima of this objective 
+
+Without further constraints, the optima of this objective 
 may have an undesirable property: information about the X_i's can be stored "synergistically" in the latent factors. 
 In other words, to predict a single variable you need to combine info from all the latent factors. Therefore, we 
 add a constraint that the solutions should be non-synergistic (latent factors are individually informative about each variable X_i). 
 This also recovers the property of the original lower bound formulation from AISTATS that each latent factor
-has a non-negative added contribution towards TC. (And it helps recover/surpass the results of the information sieve.) 
-
+has a non-negative added contribution towards TC.
 Note that by default, we constrain solutions to eliminate synergy. 
 But, you can turn it off by setting eliminate_synergy=False in the python API or -a from the command line. 
 For making nice trees, it should be left on (e.g. for personality data or ADNI data). 
-
-We are maximizing TC_L(X;Y) for y = W x, where x is in R^n, y is in R^m and W is an m by n weight matrix. 
 
 In the tests folder, try:
 ```
