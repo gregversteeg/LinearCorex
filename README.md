@@ -1,9 +1,10 @@
-# Linear Total Correlation Explanation (CorEx)
+# Latent Factor Models Based on Linear Total Correlation Explanation (CorEx)
 
 Linear CorEx finds latent factors that are as informative as possible about relationships in the data. 
 The approach is described in this paper:
-[Low Complexity Gaussian Latent Factor Models and a Blessing of Dimensionality](https://arxiv.org/abs/1706.) 
-This is useful for covariance estimation, clustering related variables, and dimensionality reduction. 
+[Low Complexity Gaussian Latent Factor Models and a Blessing of Dimensionality](https://arxiv.org/abs/1706.).
+This is useful for covariance estimation, clustering related variables, and dimensionality reduction, especially 
+in the high-dimensional, under-sampled regime. 
 
 Previous versions of CorEx worked for discrete data, and could be applied to continuous data with some hacks. 
 This is the first truly continuous version of CorEx. While this extension required assumptions of linearity, the 
@@ -39,7 +40,8 @@ Missing values can be specified, but are just imputed in a naive way.
 
 See [Sifting Common Info...](https://arxiv.org/abs/1606.02307) and 
 [Maximally informative representations...](https://arxiv.org/abs/1410.7404) for work building up to this method. 
-The main paper describing the method is [Low Complexity Gaussian Latent Factor Models and a Blessing of Dimensionality](https://arxiv.org/abs/1706.)
+The main paper describing the method is 
+[Low Complexity Gaussian Latent Factor Models and a Blessing of Dimensionality](https://arxiv.org/abs/1706.).
 The connections with the idea of "synergy" will be described in future work. 
 
 
