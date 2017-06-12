@@ -6,6 +6,11 @@ The approach is described in this paper:
 This is useful for covariance estimation, clustering related variables, and dimensionality reduction, especially 
 in the high-dimensional, under-sampled regime. 
 
+To install:
+```
+pip install linearcorex
+```
+
 Mathematically, the objective is to find factors, y, where y = W x and  
 x in R^n is the data and W is an m by n weight matrix. 
 We are minimizing TC(X|Y) + TC(Y) where TC is the "total correlation" or multivariate mutual information. This objective
@@ -28,14 +33,28 @@ Note that by default, we constrain solutions to eliminate synergy.
 But, you can turn it off by setting eliminate_synergy=False in the python API or -a from the command line. 
 For making nice trees, it should be left on (e.g. for personality data or ADNI data). 
 
-In the tests folder, try:
+To test the command line interface, try:
 ```
-python test_weak_correlations.py
-python vis_corex.py tests/data/test_big5.csv --layers=5,1 --verbose=1 --no_row_names -o big5
-python vis_corex.py tests/data/adni_blood.csv --layers=30,5,1 --missing=-1e6 --verbose=1 -o adni
-python vis_corex.py tests/data/matrix.tcga_ov.geneset1.log2.varnorm.RPKM.txt --layers=30,5,1 --delimiter=' ' --verbose=1 --gaussianize="outliers" -o gene
+cd $INSTALL_DIRECTORY/linearcorex/
+python vis_corex.py ../tests/data/test_big5.csv --layers=5,1 --verbose=1 --no_row_names -o big5
+python vis_corex.py ../tests/data/adni_blood.csv --layers=30,5,1 --missing=-1e6 --verbose=1 -o adni
+python vis_corex.py ../tests/data/matrix.tcga_ov.geneset1.log2.varnorm.RPKM.txt --layers=30,5,1 --delimiter=' ' --verbose=1 --gaussianize="outliers" -o gene
 ```
 Each of these examples generates pairwise plots of relationships and a graph. 
+
+The python API uses the sklearn conventions of fit/transform.  
+```
+import linearcorex as lc
+import numpy as np
+
+out = lc.Corex(n_hidden=5, verbose=True)  # A Corex model with 5 factors
+X = np.random.random((100, 50))  # Random data with 100 samples and 50 variables
+out.fit(X)  # Fit the model on data
+y = out.transform(X)  # Transform data into latent factors
+print(out.clusters)  # See the clusters
+cov = out.get_covariance()  # The covariance matrix
+```
+
 
 Missing values can be specified, but are just imputed in a naive way. 
 
