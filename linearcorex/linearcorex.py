@@ -202,7 +202,7 @@ class Corex(object):
         else:
             y = x.dot(u.T)
             tmp_dot = x.T.dot(y)
-        prod = np.sqrt(1 - self.eps**2) * tmp_dot.T / self.n_samples + self.eps**2 * u  # nv by m,  <X_i Y_j> / std Y_j
+        prod = (1 - self.eps**2) * tmp_dot.T / self.n_samples + self.eps**2 * u  # nv by m,  <X_i Y_j> / std Y_j
         return prod
 
     def _norm(self, x, ws):

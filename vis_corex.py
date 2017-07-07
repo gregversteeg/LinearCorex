@@ -2,7 +2,6 @@
 """
 
 import os
-from shutil import copyfile
 from itertools import combinations
 import numpy as np
 import pylab
@@ -422,7 +421,6 @@ if __name__ == '__main__':
     import sys
     import traceback
     import cPickle
-    import numpy.ma as ma
     from optparse import OptionParser, OptionGroup
 
     parser = OptionParser(usage="usage: %prog [options] data_file.csv \n"
