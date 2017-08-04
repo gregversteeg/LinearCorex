@@ -532,7 +532,7 @@ if __name__ == '__main__':
             if l == 0:
                 t0 = time()
                 corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize,
-                                    missing_values=options.missing, eliminate_synergy=options.additive,
+                                    missing_values=options.missing, discourage_overlap=options.additive,
                                     gpu=options.gpu,
                                     max_iter=options.max_iter).fit(X)]
                 print 'Time for first layer: %0.2f' % (time() - t0)
@@ -541,7 +541,7 @@ if __name__ == '__main__':
                 X_prev = corexes[-1].transform(X_prev)
                 corexes.append(lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize,
                                         gpu=options.gpu,
-                                        eliminate_synergy=options.additive, max_iter=options.max_iter).fit(X_prev))
+                                        discourage_overlap=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
             print 'TC at layer %d is: %0.3f' % (l, corex.tc)

@@ -70,7 +70,7 @@ class Corex(object):
     """
 
     def __init__(self, n_hidden=10, max_iter=10000, tol=1e-5, anneal=True, missing_values=None,
-                 eliminate_synergy=True, gaussianize='standard', gpu=False,
+                 discourage_overlap=True, gaussianize='standard', gpu=False,
                  verbose=False, seed=None):
         self.m = n_hidden  # Number of latent factors to learn
         self.max_iter = max_iter  # Number of iterations to try
@@ -79,7 +79,7 @@ class Corex(object):
         self.eps = 0  # If anneal is True, it's adjusted during optimization to avoid local minima
         self.missing_values = missing_values
 
-        self.eliminate_synergy = eliminate_synergy  # Whether or not to constrain to additive solutions
+        self.discourage_overlap = discourage_overlap  # Whether or not to discourage overlapping latent factors
         self.gaussianize = gaussianize  # Preprocess data: 'standard' scales to zero mean and unit variance
         self.gpu = gpu  # Enable GPU support for some large matrix multiplications.
         if self.gpu:
@@ -90,7 +90,7 @@ class Corex(object):
         self.verbose = verbose
         if verbose:
             np.set_printoptions(precision=3, suppress=True, linewidth=160)
-            print('Linear CorEx with {:d} latent factors'.format(n_hidden))
+            print(('Linear CorEx with {:d} latent factors'.format(n_hidden)))
 
         # Initialize these when we fit on data
         self.n_samples, self.nv = 0, 0  # Number of samples/variables in input data
@@ -112,7 +112,7 @@ class Corex(object):
             self.m = pick_n_hidden(x)
         anneal_schedule = [0.]
         if self.ws.size == 0:  # Randomly initialize weights if not already set
-            if self.eliminate_synergy:
+            if self.discourage_overlap:
                 self.ws = np.random.randn(self.m, self.nv).astype(np.float32)
                 self.ws /= (10. * self._norm(x, self.ws))[:, np.newaxis]  # TODO: test good IC
                 if self.anneal:
@@ -132,7 +132,7 @@ class Corex(object):
 
             for i_loop in range(self.max_iter):
                 last_tc = self.tc  # Save this TC to compare to possible updates
-                if self.eliminate_synergy:
+                if self.discourage_overlap:
                     self.ws, self.moments = self._update_ns(x)
                 else:
                     self.ws, self.moments = self._update_syn(x, eta=0.1)  # Older method that allows synergies
@@ -140,7 +140,7 @@ class Corex(object):
                 # assert np.isfinite(self.tc), "Error: TC is no longer finite: {}".format(self.tc)
                 if not self.moments or not np.isfinite(self.tc):
                     try:
-                        print("Error: TC is no longer finite: {}".format(self.tc))
+                        print(("Error: TC is no longer finite: {}".format(self.tc)))
                     except:
                         print("Error... updates giving invalid solutions?")
                         return self
@@ -148,12 +148,12 @@ class Corex(object):
                 self.update_records(self.moments, delta)  # Book-keeping
                 if delta < self.tol:  # Check for convergence
                     if self.verbose:
-                        print('{:d} iterations to tol: {:f}'.format(i_loop, self.tol))
+                        print(('{:d} iterations to tol: {:f}'.format(i_loop, self.tol)))
                     break
             else:
                 if self.verbose:
-                    print("Warning: Convergence not achieved in {:d} iterations. "
-                          "Final delta: {:f}".format(self.max_iter, delta.sum()))
+                    print(("Warning: Convergence not achieved in {:d} iterations. "
+                          "Final delta: {:f}".format(self.max_iter, delta.sum())))
         self.moments = self._calculate_moments(x, self.ws, quick=False)  # Update moments with details
         order = np.argsort(-self.moments["TCs"])  # Largest TC components first.
         self.ws = self.ws[order]
@@ -165,7 +165,7 @@ class Corex(object):
         gc.disable()  # There's a bug that slows when appending, fixed by temporarily disabling garbage collection
         self.history["TC"] = self.history.get("TC", []) + [moments["TC"]]
         if self.verbose > 1:
-            print("TC={:.3f}\tadd={:.3f}\tdelta={:.6f}".format(moments["TC"], moments.get("additivity", 0), delta))
+            print(("TC={:.3f}\tadd={:.3f}\tdelta={:.6f}".format(moments["TC"], moments.get("additivity", 0), delta)))
         if self.verbose:
             self.history["additivity"] = self.history.get("additivity", []) + [moments.get("additivity", 0)]
             self.history["TCs"] = self.history.get("TCs", []) + [moments.get("TCs", np.zeros(self.m))]
@@ -173,10 +173,14 @@ class Corex(object):
 
     @property
     def tc(self):
+        """This actually returns the lower bound on TC that is optimized. The lower bound assumes a constraint that
+         would be satisfied by a non-overlapping model.
+         Check "moments" for two other estimates of TC that may be useful."""
         return self.moments["TC"]
 
     @property
     def tcs(self):
+        """TCs for each individual latent factor. They DO NOT sum to TC in this case, because of overlaps."""
         return self.moments["TCs"]
 
     @property
@@ -221,7 +225,7 @@ class Corex(object):
         return np.sqrt((1 - self.eps**2) * tmp_sum / self.n_samples + self.eps**2 * np.sum(ws**2, axis=1))
 
     def _calculate_moments(self, x, ws, quick=False):
-        if self.eliminate_synergy:
+        if self.discourage_overlap:
             return self._calculate_moments_ns(x, ws, quick=quick)
         else:
             return self._calculate_moments_syn(x, ws, quick=quick)
@@ -274,6 +278,8 @@ class Corex(object):
             m['I(Y_j ; X)'] = 0.5 * np.log(m["Y_j^2"]) - 0.5 * np.log(self.yscale ** 2)
             m['I(X_i ; Y)'] = - 0.5 * np.log(m["X_i^2 | Y"])
             m["TCs"] = m["MI"].sum(axis=1) - m['I(Y_j ; X)']
+            m["TC_no_overlap"] = m["MI"].max(axis=0).sum() - m['I(Y_j ; X)'].sum()  # A direct calculation of TC where each variable is in exactly one group.
+            m["TC_direct"] = m['I(X_i ; Y)'].sum() - m['I(Y_j ; X)']  # A direct calculation of TC. Should be upper bound for "TC", "TC_no_overlap"
             m["additivity"] = (m["MI"].sum(axis=0) - m['I(X_i ; Y)']).sum()
         return m
 
@@ -299,20 +305,20 @@ class Corex(object):
         while backtrack:
             if eta < min(self.tol, 1e-10):
                 if self.verbose:
-                    print 'Warning: step size becoming too small'
+                    print('Warning: step size becoming too small')
                 break
             w_update = self.ws + eta * update
             m_update = self._calculate_moments_ns(x, w_update, quick=True)
             if not m_update:  # TEST 1: Make sure rho is a valid solution, if not m_update will return False
                 eta *= 0.5
                 if self.verbose > 1:
-                    print('back:{:.7f}'.format(eta))
+                    print(('back:{:.7f}'.format(eta)))
                 continue
             wolfe1 = -m_update['TC'] <= -m['TC'] + 0.1 * eta * update_tangent
             if not wolfe1:  # TEST 2: the first wolfe condition (sufficient decrease)
                 eta *= 0.5
                 if self.verbose > 1:
-                    print('wolfe1:{:.7f}'.format(eta))
+                    print(('wolfe1:{:.7f}'.format(eta)))
                 continue
             backtrack = False
         return w_update, m_update
@@ -427,7 +433,7 @@ class Corex(object):
     def get_covariance(self):
         # This uses E(Xi|Y) formula for non-synergistic relationships
         m = self.moments
-        if self.eliminate_synergy:
+        if self.discourage_overlap:
             z = m['rhoinvrho'] / (1 + m['Si'])
             cov = np.dot(z.T, z)
             cov /= (1. - self.eps**2)
@@ -439,20 +445,25 @@ class Corex(object):
             return self.theta[1][:, np.newaxis] * self.theta[1] * cov
 
 
-def pick_n_hidden(data):
+def pick_n_hidden(data, repeat=1, verbose=False):
     """A helper function to pick the number of hidden factors / clusters to use."""
     # TODO: Use an efficient search strategy
-    scores = []
+    max_score = - np.inf
     n = 1
     while True:
-        out = Corex(n_hidden=n, max_iter=1000, tol=1e-3, gpu=False).fit(data)
-        m = out.moments
-        score = np.sum(m["MI"]) - np.sum(m['I(Y_j ; X)'])
-        scores.append((score, n))
-        if score < max(scores)[0]:
+        score = 0
+        for _ in range(repeat):
+            out = Corex(n_hidden=n, max_iter=1000, tol=1e-3, gpu=False).fit(data)
+            m = out.moments
+            score += m["TC_no_overlap"] / repeat
+        if verbose:
+            print(("n: {}, score: {}".format(n, score)))
+        if score < max_score:
             break
-        n += 1
-    return max(scores)[1]
+        else:
+            n += 1
+            max_score = score
+    return n - 1
 
 
 def g(x, t=4):
