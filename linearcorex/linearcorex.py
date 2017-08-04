@@ -451,11 +451,12 @@ def pick_n_hidden(data, repeat=1, verbose=False):
     max_score = - np.inf
     n = 1
     while True:
-        score = 0
+        scores = []
         for _ in range(repeat):
             out = Corex(n_hidden=n, max_iter=1000, tol=1e-3, gpu=False).fit(data)
             m = out.moments
-            score += m["TC_no_overlap"] / repeat
+            scores.append(m["TC_no_overlap"])
+        score = max(scores)
         if verbose:
             print(("n: {}, score: {}".format(n, score)))
         if score < max_score:
