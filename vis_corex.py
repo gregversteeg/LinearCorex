@@ -120,7 +120,7 @@ def plot_convergence(history, prefix='', prefix2=''):
 
 
 
-def plot_heatmaps(data, mis, column_label, cont, topk=10, prefix=''):
+def plot_heatmaps(data, mis, column_label, cont, topk=30, prefix=''):
     cmap = sns.cubehelix_palette(as_cmap=True, light=.9)
     m, nv = mis.shape
     for j in range(m):

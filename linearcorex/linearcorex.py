@@ -445,26 +445,29 @@ class Corex(object):
             return self.theta[1][:, np.newaxis] * self.theta[1] * cov
 
 
-def pick_n_hidden(data, repeat=1, verbose=False):
+def pick_n_hidden(data, repeat=1, verbose=False, **kwargs):
     """A helper function to pick the number of hidden factors / clusters to use."""
     # TODO: Use an efficient search strategy
     max_score = - np.inf
     n = 1
+    all_scores = []
     while True:
         scores = []
         for _ in range(repeat):
-            out = Corex(n_hidden=n, max_iter=1000, tol=1e-3, gpu=False).fit(data)
+            out = Corex(n_hidden=n, gpu=False, **kwargs).fit(data)
             m = out.moments
             scores.append(m["TC_no_overlap"])
         score = max(scores)
         if verbose:
             print(("n: {}, score: {}".format(n, score)))
-        if score < max_score:
+        all_scores.append((score, n))
+        if score < 0.95 * max_score:
             break
         else:
             n += 1
-            max_score = score
-    return n - 1
+            if score > max_score:
+                max_score = score
+    return all_scores
 
 
 def g(x, t=4):
