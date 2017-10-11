@@ -123,12 +123,12 @@ class Corex(object):
 
         for i_eps, eps in enumerate(anneal_schedule):
             self.eps = eps
-            if i_eps > 0:
+            if i_eps > 0:  # Rescale the solution when we change the annealing parameter
                 eps0 = anneal_schedule[i_eps - 1]
-                mag = (1 - self.yscale**2 / self.moments['Y_j^2']).clip(1e-5)  # May be better to re-initialize un-used latent factors (i.e. yj^2=self.yscale**2)?
-                wmag = np.sum(self.ws**2, axis=1)
-                self.ws *= np.sqrt((1 - eps0**2) / (1 - eps**2 - (eps0**2 - eps**2) * wmag / mag))[:, np.newaxis]
-            self.moments = self._calculate_moments(x, self.ws, quick=True)
+                wmag = np.sum(self.ws**2, axis=1, keepdims=True)
+                delta = (self.eps**2 - eps0**2) / (1 - eps0**2)
+                self.ws /= np.sqrt(1 + delta * (wmag - self.moments['uj'].reshape((-1, 1)))).clip(1e-5)
+            self.moments = self._calculate_moments(x, self.ws)
 
             for i_loop in range(self.max_iter):
                 last_tc = self.tc  # Save this TC to compare to possible updates
