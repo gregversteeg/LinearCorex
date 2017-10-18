@@ -122,12 +122,15 @@ class Corex(object):
         self.moments = self._calculate_moments(x, self.ws, quick=True)
 
         for i_eps, eps in enumerate(anneal_schedule):
+            # We change epsilon, the annealing parameter, but we have to scale w to ensure that
+            # it is still a valid solution (m['uj'] < 1), even if there are numerical rounding issues.
+            eps0 = self.eps
             self.eps = eps
             if i_eps > 0:  # Rescale the solution when we change the annealing parameter
-                eps0 = anneal_schedule[i_eps - 1]
                 wmag = np.sum(self.ws**2, axis=1, keepdims=True)
-                delta = (self.eps**2 - eps0**2) / (1 - eps0**2)
-                self.ws /= np.sqrt(1 + delta * (wmag - self.moments['uj'].reshape((-1, 1)))).clip(1e-5)
+                delta = (self.eps**2 - eps0**2) / (1. - eps**2) * wmag / self.moments['uj'].reshape((-1, 1))
+                a = (np.sqrt((1. - eps0**2) / ((1. - eps**2) * (1. + delta))))
+                self.ws *= 0.001 * np.floor(1000. * a)  # Avoid a subtle numerical overflow that leads uj >= 1
             self.moments = self._calculate_moments(x, self.ws)
 
             for i_loop in range(self.max_iter):
@@ -148,7 +151,7 @@ class Corex(object):
                 self.update_records(self.moments, delta)  # Book-keeping
                 if delta < self.tol:  # Check for convergence
                     if self.verbose:
-                        print(('{:d} iterations to tol: {:f}'.format(i_loop, self.tol)))
+                        print(('{:d} iterations to tol: {:f}, TC={:f}'.format(i_loop, self.tol, self.tc)))
                     break
             else:
                 if self.verbose:
@@ -261,14 +264,15 @@ class Corex(object):
         m["invrho"] = 1. / (1. - m["rho"]**2)
         m["rhoinvrho"] = m["rho"] * m["invrho"]
         m["Qij"] = np.dot(m['ry'], m["rhoinvrho"])
-        m["Qi"] = np.einsum('ki,ki->i', m["rhoinvrho"], m["Qij"])
-        #m["Qi-Si^2"] = np.einsum('ki,ki->i', m["rhoinvrho"], m["Qij"])
+        # m["Qi"] = np.einsum('ki,ki->i', m["rhoinvrho"], m["Qij"])
         m["Si"] = np.sum(m["rho"] * m["rhoinvrho"], axis=0)
+        m["Qi-Si^2"] = np.einsum('ki,ki->i', m["rhoinvrho"], m["Qij"] - m["Si"] * m["rho"])
 
         # This is the objective, a lower bound for TC
         m["TC"] = np.sum(np.log(1 + m["Si"])) \
-                     - 0.5 * np.sum(np.log(1 - m["Si"]**2 + m["Qi"])) \
+                     - 0.5 * np.sum(np.log(1 + m["Qi-Si^2"])) \
                      + 0.5 * np.sum(np.log(1 - m["uj"]))
+                    # - m["Si"]**2 + m["Qi"]))
 
         if not quick:
             m["MI"] = - 0.5 * np.log1p(-m["rho"]**2)
@@ -287,21 +291,27 @@ class Corex(object):
         """Perform one update of the weights and re-calculate moments in the NON-SYNERGISTIC case."""
         m = self.moments
         rj = 1. - m["uj"][:, np.newaxis]
-        H = np.dot(m["rhoinvrho"] / (1 + m["Qi"] - m["Si"]**2), m["rhoinvrho"].T)
+        H = np.dot(m["rhoinvrho"] / (1 + m["Qi-Si^2"]), m["rhoinvrho"].T)
         np.fill_diagonal(H, 0)
         grad = self.ws / rj
         grad -= 2 * m["invrho"] * m["rhoinvrho"] / (1 + m["Si"])
         grad += m["invrho"]**2 * \
-               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 - m["Si"]**2 + m["Qi"])
+               ((1 + m["rho"]**2) * m["Qij"] - 2 * m["rho"] * m["Si"]) / (1 + m["Qi-Si^2"])
         grad += np.dot(H, self.ws)
         sig_grad = self._sig(x, grad)
         Bj = np.sum(m["rho"] * grad, axis=1, keepdims=True)
         update = - rj * (grad - 2. * self.ws / (2 - rj) * Bj)  # Gamma Hess^-1 Grad
-        update = np.where(rj < 1e-6, 0, update)
+        # update = np.where(rj < 1e-6, 0, update)
+        update_tangent = np.einsum('ji,ji', sig_grad, update)
+        if update_tangent >= 0:
+            print('Warning: covariance is nearly singular and this causes a loss of numerical precision.'
+                  'For this reason, we can no longer find an update that increases the objective. '
+                  'Hopefully this is a good solution. If not, this is caused by having many variables that are '
+                  'near duplicates. You could try again with the duplicates removed to look for other structure.')
+            return self.ws, m
 
         backtrack = True
         eta = 1.
-        update_tangent = np.einsum('ji,ji', sig_grad, update)
         while backtrack:
             if eta < min(self.tol, 1e-10):
                 if self.verbose:
