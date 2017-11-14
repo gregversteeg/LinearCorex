@@ -520,7 +520,8 @@ if __name__ == '__main__':
 
     if verbose:
         print '\nData summary: X has %d rows and %d columns' % X.shape
-        print 'Variable names are: ' + ','.join(map(str, list(enumerate(variable_names))))
+        if not options.nc:
+            print 'Variable names are: ' + ','.join(map(str, list(enumerate(variable_names))))
 
     # Run CorEx on data
     if verbose:
