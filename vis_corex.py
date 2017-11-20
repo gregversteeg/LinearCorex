@@ -32,11 +32,11 @@ def vis_rep(corex, data, row_label=None, column_label=None, prefix='corex_output
     if row_label is None:
         row_label = map(str, range(len(data)))
 
-    dual = (corex.moments['X_i Y_j'] * corex.moments['X_i Z_j']).T
-    alpha = dual > 0.05
+    dual = corex.moments['rho'] * corex.moments['X_i Z_j'].T
+    alpha = dual > 0.05  # Explains at least 5% of variance
 
     print('Variable groups in summary/groups.txt')
-    output_groups(corex.ws, corex.moments, alpha, dual, column_label, prefix=prefix)
+    output_groups(corex.ws, corex.moments, alpha, corex.mis, column_label, prefix=prefix)
 
     print("Latent factors for each sample in summary/labels.txt")
     labels = corex.transform(data)
