@@ -1,4 +1,4 @@
-# This file may be used to create an environment using:
+# This file may be used to create an environment using the following command:
 # $ conda create --name <env> --file <this file>
 # platform: linux-64
 blas=1.0=mkl
