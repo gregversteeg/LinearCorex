@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import codecs
 import seaborn as sns
 
+
 # These are the "Tableau 20" colors as RGB.
 tableau20 = [(31, 119, 180), (255, 127, 14),
              (44, 160, 44), (214, 39, 40), (255, 152, 150),
@@ -26,11 +27,11 @@ for i in range(len(tableau20)):
 def vis_rep(corex, data, row_label=None, column_label=None, prefix='corex_output', max_edges=200):
     """Various visualizations and summary statistics for a one layer representation"""
     if column_label is None:
-        column_label = map(str, range(data.shape[1]))
+        column_label = list(map(str, list(range(data.shape[1]))))
     else:
         column_label = [extract_color(label)[0] for label in column_label]
     if row_label is None:
-        row_label = map(str, range(len(data)))
+        row_label = list(map(str, list(range(len(data)))))
 
     dual = corex.moments['rho'] * corex.moments['X_i Z_j'].T
     alpha = dual > 0.05  # Explains at least 5% of variance
@@ -41,12 +42,12 @@ def vis_rep(corex, data, row_label=None, column_label=None, prefix='corex_output
     print("Latent factors for each sample in summary/labels.txt")
     labels = corex.transform(data)
     output_labels(labels, row_label, prefix=prefix)
-    
+
     if hasattr(corex, "history"):
         print("Convergence of objective in summary/convergence.pdf")
         plot_convergence(corex.history, prefix=prefix)
 
-    print 'Pairwise plots among high TC variables in "relationships"'
+    print('Pairwise plots among high TC variables in "relationships"')
     plot_heatmaps(data, corex.mis, column_label, corex.transform(data), prefix=prefix)
     plot_top_relationships(data, corex, labels, column_label, prefix=prefix)
 
@@ -104,7 +105,7 @@ def plot_convergence(history, prefix='', prefix2=''):
     y = np.max(history["TC"])
     plt.text(0.5 * x, 0.8 * y, "TC", fontsize=18, fontweight='bold', color=tableau20[0])
 
-    if history.has_key("additivity"):
+    if "additivity" in history:
         plt.plot(history["additivity"], '-', lw=2.5, color=tableau20[1])
         plt.text(0.5 * x, 0.3 * y, "additivity", fontsize=18, fontweight='bold', color=tableau20[1])
 
@@ -162,20 +163,20 @@ def plot_top_relationships(data, corex, labels, column_label, topk=5, prefix='')
                     k = np.argsort(-np.abs(cy[j]))[1]
                 factor = corex.moments['X_i Z_j'][inds[0], j] * labels[:, j] + corex.moments['X_i Z_j'][inds[0], k] * labels[:, k]
                 title = '$Y_{%d} + Y_{%d}$' % (j, k)
-            plot_rels(data[:, inds], map(lambda q: column_label[q], inds), colors=factor,
+            plot_rels(data[:, inds], [column_label[q] for q in inds], colors=factor,
                       outfile=prefix + '/relationships/group_num=' + str(j), title=title)
 
 
 def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha=0.8, title=''):
     ns, n = data.shape
     if labels is None:
-        labels = map(str, range(n))
+        labels = list(map(str, list(range(n))))
     ncol = 5
     nrow = int(np.ceil(float(n * (n - 1) / 2) / ncol))
 
     fig, axs = pylab.subplots(nrow, ncol)
     fig.set_size_inches(5 * ncol, 5 * nrow)
-    pairs = list(combinations(range(n), 2))
+    pairs = list(combinations(list(range(n)), 2))
     if colors is not None:
         colors = (colors - np.min(colors)) / (np.max(colors) - np.min(colors))
 
@@ -214,8 +215,7 @@ def plot_rels(data, labels=None, colors=None, outfile="rels", latent=None, alpha
 def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     """Visualize a hierarchy of representations."""
     if column_label is None:
-        column_label = map(str, range(corexes[0].mis.shape[1]))
-
+        column_label = list(map(str, list(range(corexes[0].mis.shape[1]))))
     f = safe_open(prefix + '/summary/higher_layer_group_tcs.txt', 'w+')
     for j, corex in enumerate(corexes):
         f.write('At layer: %d, Total TC: %0.3f\n' % (j, corex.tc))
@@ -225,7 +225,7 @@ def vis_hierarchy(corexes, column_label=None, max_edges=100, prefix=''):
     f.close()
 
     import textwrap
-    column_label = map(lambda q: '\n'.join(textwrap.wrap(q, width=17, break_long_words=False)), column_label)
+    column_label = ['\n'.join(textwrap.wrap(q, width=17, break_long_words=False)) for q in column_label]
 
     #dual = (corex.moments['X_i Y_j'] * corex.moments['X_i Z_j']).T
     #alpha = dual > 0.04 # sieve.mis > (0.1 * np.max(sieve.mis, axis=1, keepdims=True)).clip(-np.log1p(-1. / sieve.n_samples) * 3)  # TODO: is that permanent?
@@ -267,7 +267,7 @@ def neato(fname, position=None, directed=False):
 def extract_color(label):
     import matplotlib
 
-    colors = matplotlib.colors.cnames.keys()
+    colors = list(matplotlib.colors.cnames.keys())
     parts = label.split('_')
     for part in parts:
         if part in colors:
@@ -285,70 +285,68 @@ def edge2pdf(g, filename, threshold=0, position=None, labels=None, connected=Tru
     def cnn(node):
         #change node names for dot format
         if type(node) is tuple or type(node) is list:
-            return u'n' + u'_'.join(map(unicode, node))
+            return 'n' + '_'.join(map(str, node))
         else:
-            return unicode(node)
+            return str(node)
 
     if connected:
         touching = list(set(sum([[a, b] for a, b in g.edges()], [])))
         g = nx.subgraph(g, touching)
-        print 'non-isolated nodes,edges', len(list(g.nodes())), len(list(g.edges()))
+        print('non-isolated nodes,edges', len(list(g.nodes())), len(list(g.edges())))
     f = safe_open(filename + '.dot', 'w+')
     if directed:
-        f.write("strict digraph {\n".encode('utf-8'))
+            f.write("strict digraph {\n")
     else:
-        f.write("strict graph {\n".encode('utf-8'))
+        f.write("strict graph {\n")
     #f.write("\tgraph [overlap=scale];\n".encode('utf-8'))
-    f.write("\tnode [shape=point];\n".encode('utf-8'))
+    f.write("\tnode [shape=point];\n")
     for a, b, d in g.edges(data=True):
-        if d.has_key('weight'):
+        if 'weight' in d:
             if directed:
                 f.write(("\t" + cnn(a) + ' -> ' + cnn(b) + ' [penwidth=%.2f' % float(
-                    np.clip(d['weight'], 0, 9)) + '];\n').encode('utf-8'))
+                    np.clip(d['weight'], 0, 9)) + '];\n'))
             else:
                 if d['weight'] > threshold:
-                    f.write(("\t" + cnn(a) + ' -- ' + cnn(b) + ' [penwidth=' + str(3 * d['weight']) + '];\n').encode(
-                        'utf-8'))
+                    f.write(("\t" + cnn(a) + ' -- ' + cnn(b) + ' [penwidth=' + str(3 * d['weight']) + '];\n'))
         else:
             if directed:
-                f.write(("\t" + cnn(a) + ' -> ' + cnn(b) + ';\n').encode('utf-8'))
+                f.write(("\t" + cnn(a) + ' -> ' + cnn(b) + ';\n'))
             else:
-                f.write(("\t" + cnn(a) + ' -- ' + cnn(b) + ';\n').encode('utf-8'))
+                f.write(("\t" + cnn(a) + ' -- ' + cnn(b) + ';\n'))
     for n in g.nodes():
         if labels is not None:
             if type(labels) == dict or type(labels) == list:
-                thislabel = labels[n].replace(u'"', u'\\"')
-                lstring = u'label="' + thislabel + u'",shape=none'
+                thislabel = labels[n].replace('"', '\\"')
+                lstring = 'label="' + thislabel + '",shape=none'
             elif type(labels) == str:
-                if g.node[n].has_key('label'):
-                    thislabel = g.node[n][labels].replace(u'"', u'\\"')
+                if 'label' in g.nodes[n]:
+                    thislabel = g.nodes[n][labels].replace('"', '\\"')
                     # combine dupes
                     #llist = thislabel.split(',')
                     #thislabel = ','.join([l for l in set(llist)])
                     thislabel, thiscolor = extract_color(thislabel)
-                    lstring = u'label="%s",shape=none,fontcolor="%s"' % (thislabel, thiscolor)
+                    lstring = 'label="%s",shape=none,fontcolor="%s"' % (thislabel, thiscolor)
                 else:
-                    weight = g.node[n].get('weight', 0.1)
+                    weight = g.nodes[n].get('weight', 0.1)
                     if n[0] == 1:
-                        lstring = u'shape=circle,margin="0,0",style=filled,fillcolor=black,fontcolor=white,height=%0.2f,label="Y%d"' % (
-                            2 * weight, n[1])
+                        lstring = 'shape=circle,margin="0,0",style=filled,fillcolor=black,fontcolor=white,height=%0.2f,label="Y%d"' % (2 * weight, n[1])
                     else:
-                        lstring = u'shape=point,height=%0.2f' % weight
+                        lstring = 'shape=point,height=%0.2f' % weight
             else:
                 lstring = 'label="' + str(n) + '",shape=none'
-            lstring = unicode(lstring)
+            lstring = str(lstring)
         else:
             lstring = False
         if position is not None:
             if position == 'grid':
                 position = [(i % 28, 28 - i / 28) for i in range(784)]
-            posstring = unicode('pos="' + str(position[n][0]) + ',' + str(position[n][1]) + '"')
+            posstring = str('pos="' + str(position[n][0]) + ',' + str(position[n][1]) + '"')
         else:
             posstring = False
-        finalstring = u' [' + u','.join([ts for ts in [posstring, lstring] if ts]) + u']\n'
+        finalstring = ' [' + ','.join([ts for ts in [posstring, lstring] if ts]) + ']\n'
         #finalstring = u' ['+lstring+u']\n'
-        f.write((u'\t' + cnn(n) + finalstring).encode('utf-8'))
-    f.write("}".encode('utf-8'))
+        f.write(('\t' + cnn(n) + finalstring))
+    f.write("}")
     f.close()
     if makepdf:
         neato(filename, position=position, directed=directed)
@@ -362,17 +360,17 @@ def shorten(s, n=12):
 
 
 def make_graph(weights, node_weights, column_label, max_edges=100):
-    all_edges = np.hstack(map(np.ravel, weights))
+    all_edges = np.hstack(list(map(np.ravel, weights)))
     max_edges = min(max_edges, len(all_edges))
     w_thresh = np.sort(all_edges)[-max_edges]
-    print 'weight threshold is %f for graph with max of %f edges ' % (w_thresh, max_edges)
+    print('weight threshold is %f for graph with max of %f edges ' % (w_thresh, max_edges))
     g = nx.DiGraph()
     max_node_weight = max([max(w) for w in node_weights])
     for layer, weight in enumerate(weights):
         m, n = weight.shape
         for j in range(m):
             g.add_node((layer + 1, j))
-            g.node[(layer + 1, j)]['weight'] = 0.3 * node_weights[layer][j] / max_node_weight
+            g.nodes[(layer + 1, j)]['weight'] = 0.3 * node_weights[layer][j] / max_node_weight
             for i in range(n):
                 if weight[j, i] > w_thresh:
                     if weight[j, i] > w_thresh / 2:
@@ -383,9 +381,9 @@ def make_graph(weights, node_weights, column_label, max_edges=100):
     # Label layer 0
     for i, lab in enumerate(column_label):
         g.add_node((0, i))
-        g.node[(0, i)]['label'] = lab
-        g.node[(0, i)]['name'] = lab  # JSON uses this field
-        g.node[(0, i)]['weight'] = 1
+        g.nodes[(0, i)]['label'] = lab
+        g.nodes[(0, i)]['name'] = lab  # JSON uses this field
+        g.nodes[(0, i)]['weight'] = 1
     return g
 
 
@@ -393,12 +391,14 @@ def trim(g, max_parents=False, max_children=False):
     for node in g:
         if max_parents:
             parents = list(g.successors(node))
-            weights = [g.edge[node][parent]['weight'] for parent in parents]
+            # https://networkx.github.io/documentation/stable/release/migration_guide_from_1.x_to_2.0.html
+            weights = [g.adj[node][parent]['weight'] for parent in parents]
             for weak_parent in np.argsort(weights)[:-max_parents]:
                 g.remove_edge(node, parents[weak_parent])
         if max_children:
             children = g.predecessors(node)
-            weights = [g.edge[child][node]['weight'] for child in children]
+            # https://networkx.github.io/documentation/stable/release/migration_guide_from_1.x_to_2.0.html
+            weights = [g.adj[child][node]['weight'] for child in children]
             for weak_child in np.argsort(weights)[:-max_children]:
                 g.remove_edge(children[weak_child], node)
     return g
@@ -408,7 +408,7 @@ def trim(g, max_parents=False, max_children=False):
 def safe_open(filename, mode):
     if not os.path.exists(os.path.dirname(filename)):
         os.makedirs(os.path.dirname(filename))
-    return codecs.open(filename, mode, 'utf8')
+    return codecs.open(filename, mode)
 
 
 if __name__ == '__main__':
@@ -420,7 +420,7 @@ if __name__ == '__main__':
     import csv
     import sys
     import traceback
-    import cPickle
+    import pickle
     from optparse import OptionParser, OptionGroup
 
     parser = OptionParser(usage="usage: %prog [options] data_file.csv \n"
@@ -482,23 +482,23 @@ if __name__ == '__main__':
 
     (options, args) = parser.parse_args()
     if not len(args) == 1:
-        print "Run with '-h' option for usage help."
+        print("Run with '-h' option for usage help.")
         sys.exit()
 
     np.set_printoptions(precision=3, suppress=True)  # For legible output from numpy
-    layers = map(int, options.layers.split(','))
+    layers = list(map(int, options.layers.split(',')))
     if layers[-1] != 1:
         layers.append(1)  # Last layer has one unit for convenience so that graph is fully connected.
     verbose = options.verbose
 
     #Load data from csv file
     filename = args[0]
-    with open(filename, 'rU') as csvfile:
+    with open(filename, 'r') as csvfile:
         reader = csv.reader(csvfile, delimiter=options.delimiter)
         if options.nc:
             variable_names = None
         else:
-            variable_names = reader.next()[(1 - options.nr):]
+            variable_names = next(reader)[(1 - options.nr):]
         sample_names = []
         data = []
         for row in reader:
@@ -511,32 +511,32 @@ if __name__ == '__main__':
     try:
         X = np.array(data, dtype=float)  # Data matrix in numpy format
     except:
-        print "Incorrect data format.\nCheck that you've correctly specified options " \
+        print("Incorrect data format.\nCheck that you've correctly specified options " \
               "such as continuous or not, \nand if there is a header row or column.\n" \
               "Also, missing values should be specified with a numeric value (-1 by default).\n" \
-              "Run 'python vis_corex.py -h' option for help with options."
+              "Run 'python vis_corex.py -h' option for help with options.")
         traceback.print_exc(file=sys.stdout)
         sys.exit()
 
     if verbose:
-        print '\nData summary: X has %d rows and %d columns' % X.shape
+        print('\nData summary: X has %d rows and %d columns' % X.shape)
         if not options.nc:
-            print 'Variable names are: ' + ','.join(map(str, list(enumerate(variable_names))))
+            print('Variable names are: ' + ','.join(map(str, list(enumerate(variable_names)))))
 
     # Run CorEx on data
     if verbose:
-        print 'Getting CorEx results'
+        print('Getting CorEx results')
     if not options.regraph:
         for l, layer in enumerate(layers):
             if verbose:
-                print "Layer ", l
+                print("Layer ", l)
             if l == 0:
                 t0 = time()
                 corexes = [lc.Corex(n_hidden=layer, verbose=verbose, gaussianize=options.gaussianize,
                                     missing_values=options.missing, discourage_overlap=options.additive,
                                     gpu=options.gpu,
                                     max_iter=options.max_iter).fit(X)]
-                print 'Time for first layer: %0.2f' % (time() - t0)
+                print('Time for first layer: %0.2f' % (time() - t0))
                 X_prev = X
             else:
                 X_prev = corexes[-1].transform(X_prev)
@@ -545,10 +545,10 @@ if __name__ == '__main__':
                                         discourage_overlap=options.additive, max_iter=options.max_iter).fit(X_prev))
         for l, corex in enumerate(corexes):
             # The learned model can be loaded again using ce.Corex().load(filename)
-            print 'TC at layer %d is: %0.3f' % (l, corex.tc)
-            cPickle.dump(corex, safe_open(options.output + '/layer_' + str(l) + '.dat', 'w'))
+            print('TC at layer %d is: %0.3f' % (l, corex.tc))
+            pickle.dump(corex, safe_open(options.output + '/layer_' + str(l) + '.dat', 'wb'))
     else:
-        corexes = [cPickle.load(open(options.output + '/layer_' + str(l) + '.dat')) for l in range(len(layers))]
+        corexes = [pickle.load(open(options.output + '/layer_' + str(l) + '.dat')) for l in range(len(layers))]
 
     # This line outputs plots showing relationships at the first layer
     vis_rep(corexes[0], X, row_label=sample_names, column_label=variable_names, prefix=options.output)
