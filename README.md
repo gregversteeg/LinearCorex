@@ -67,11 +67,44 @@ The connections with the idea of "synergy" will be described in future work.
 
 
 ### Troubleshooting visualization
+For Mac users: 
+
 To get the visualization of the hierarchy looking nice sometimes takes a little effort. To get graphs to compile correctly do the following. 
 Using "brew" to install, you need to do "brew install gts" followed by "brew install --with-gts graphviz". 
-The (hacky) way that the visualizations are produced is the following. The code, vis_corex.py, produces a text file called "graphs/graph.dot". This just encodes the edges between nodes in dot format. Then, the code calls a command line utility called sfdp that is part of graphviz, "sfdp graph.dot -Tpdf -Earrowhead=none -Nfontsize=12  -GK=2 -Gmaxiter=1000 -Goverlap=False -Gpack=True -Gpackmode=clust -Gsep=0.01 -Gsplines=False -o graph_sfdp.pdf".
+The (hacky) way that the visualizations are produced is the following. The code, vis_corex.py, produces a text file called "graphs/graph.dot". This just encodes the edges between nodes in dot format. Then, the code calls a command line utility called sfdp that is part of graphviz, 
+
+```
+sfdp graph.dot -Tpdf -Earrowhead=none -Nfontsize=12  -GK=2 -Gmaxiter=1000 -Goverlap=False -Gpack=True -Gpackmode=clust -Gsep=0.01 -Gsplines=False -o graph_sfdp.pdf
+```
+
 These dot files can also be opened with OmniGraffle if you would like to be able to manipulate them by hand. 
-If you want, you can try to recompile graphs yourself with different options to make them look nicer. Or you can edit the dot files to get effects like colored nodes, etc. 
+If you want, you can try to recompile graphs yourself with different options to make them look nicer. Or you can edit the dot files to get effects like colored nodes, etc.
+
+For Ubuntu users:
+
+Credits: https://gitlab.com/graphviz/graphviz/issues/1237
+
+1. Remove any existing installation with `conda uninstall graphviz`. (If you did not install with Conda, you might need to do `sudo apt purge graphviz` and/or `pip uninstall graphviz`).
+    
+2. run `sudo apt install libgts-dev`
+
+3. run `sudo pkg-config --libs gts`
+    
+4. run `sudo pkg-config --cflags gts`
+
+5. Download `graphviz-2.40.1.tar.gz` from [here](https://graphviz.gitlab.io/pub/graphviz/stable/SOURCES/graphviz.tar.gz)
+
+6. Navigate to directory containing download, and extract with `tar -xvf graphviz-2.40.1.tar.gz` (or newer whatever the download is named.)
+
+7. `cd` into extracted folder (ie `cd graphviz-2.40.1`) and run `sudo ./configure --with-gts`
+
+8. Run `sudo make` in the folder
+
+9. Run `sudo make install` in the folder
+
+10. Reinstall library using `pip install graphviz`
+    
+ 
 
 
 
